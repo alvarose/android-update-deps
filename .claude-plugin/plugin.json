@@ -1,0 +1,12 @@
+{
+  "name": "android-update-deps",
+  "displayName": "Android Update Dependencies",
+  "version": "1.0.0",
+  "description": "Safe, gated review & update of Android (Kotlin/Gradle) dependencies in a Gradle version catalog — detects updates, analyzes risk, and applies only after your confirmation.",
+  "author": { "name": "Alvaro Serrano", "email": "alvaroserranoe@gmail.com" },
+  "homepage": "https://github.com/alvarose/android-update-deps",
+  "repository": "https://github.com/alvarose/android-update-deps",
+  "license": "MIT",
+  "keywords": ["android", "gradle", "kotlin", "dependencies", "version-catalog", "agp", "jetpack-compose"],
+  "skills": ["./"]
+}

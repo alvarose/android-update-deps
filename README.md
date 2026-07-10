@@ -62,22 +62,30 @@ A fixed, repeatable procedure (the skill stops at step 5 for your approval):
 
 ## Installation
 
-This is a [Claude skill](https://code.claude.com/docs/en/skills). Install it where Claude Code
-discovers skills:
+### Option 1 — Claude Code plugin (recommended)
 
-**Personal (all your projects):**
-```bash
-git clone https://github.com/alvarose/android-update-deps.git \
-  ~/.claude/skills/android-update-deps
+Add this repo as a plugin marketplace and install in one command:
+
+```
+/plugin marketplace add alvarose/android-update-deps
+/plugin install android-update-deps@alvarose
 ```
 
-**Project-scoped (share via your repo):**
+Update later with `/plugin update android-update-deps@alvarose`.
+
+### Option 2 — Manual skill install
+
+Clone into a directory Claude Code scans for [skills](https://code.claude.com/docs/en/skills):
+
 ```bash
-git clone https://github.com/alvarose/android-update-deps.git \
-  .claude/skills/android-update-deps
+# Personal (all your projects)
+git clone https://github.com/alvarose/android-update-deps.git ~/.claude/skills/android-update-deps
+
+# or project-scoped (share it via your repo)
+git clone https://github.com/alvarose/android-update-deps.git .claude/skills/android-update-deps
 ```
 
-Alternatively, download the packaged `android-update-deps.skill` from the
+Or download the packaged `android-update-deps.skill` from the
 [Releases](https://github.com/alvarose/android-update-deps/releases) page.
 
 ## Usage
@@ -103,6 +111,7 @@ verifies with a build and commits on a branch. **It won't touch anything without
 
 ```
 android-update-deps/
+├── .claude-plugin/   # plugin + marketplace manifests (for /plugin install)
 ├── SKILL.md          # the skill: discovery, the 9-step gated procedure
 ├── reference.md      # coupled-versions table, JitPack procedure, report.json format
 ├── scripts/
