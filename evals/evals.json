@@ -1,0 +1,58 @@
+{
+  "skill_name": "android-update-deps",
+  "notes": "Each run operates on a fresh clone of the fixture at scratchpad/fixtures/android-catalog-fixture — a real Android app (AGP + Kotlin, Compose BOM, git-initialized on `main`) with an intentionally outdated version catalog. Report highlights: gson 2.10->2.14 [safe] and androidx core-ktx 1.13->1.19 [safe minor]; a Compose BOM 2024.06.00 whose CHILDREN (compose-ui, material3) show updates but are BOM-governed and must be IGNORED (bump only the BOM); AGP 8.7.3 -> 9.2.1 [MAJOR, coupled with the Gradle wrapper -> defer]; kotlin 2.0.21 + ksp [coupled block]; a swarm of AGP-governed com.android.tools.utp:* tooling artifacts that are noise and must be ignored; and a catalog-only JitPack lib com.github.barteksc:AndroidPdfViewer [the plugin's blind spot]. Verify with `./gradlew :app:assembleDebug`. The <FIXTURE> token is replaced with the per-run copy path. Prompts pre-authorize the safe subset so the gated flow can proceed to apply/verify/commit without a human at the gate.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I've got an Android project at <FIXTURE> that uses a version catalog (gradle/libs.versions.toml). Check what dependencies are outdated, show me a proposal grouped by risk, then go ahead and apply just the SAFE (low-risk, same-major) updates and commit them locally — you have my confirmation for the safe subset. Leave anything risky like a major bump for me to decide.",
+      "expected_output": "Runs dependencyUpdates, presents a risk-grouped proposal that (a) proposes bumping only the Compose BOM and explicitly ignores the BOM-governed compose-ui/material3 children, (b) classifies AGP 8.7.3->9.2.1 as a MAJOR coupled with the Gradle wrapper and defers it, (c) ignores the AGP-governed com.android.tools.utp:* tooling noise, and (d) flags the JitPack lib for manual review. Applies the safe subset (gson, core-ktx, compose BOM) to libs.versions.toml, verifies with ./gradlew :app:assembleDebug, commits on a non-default branch with a chore(deps) message, and responds in English.",
+      "files": [],
+      "assertions": [
+        "Detected available updates by running the gradle-versions-plugin (dependencyUpdates) or reading its report, rather than inventing versions.",
+        "Recognized that compose-ui and material3 are governed by the Compose BOM and proposed bumping only the BOM (did NOT propose the child artifacts as separate items).",
+        "Classified AGP 8.7.3 -> 9.2.1 as a MAJOR (coupled with the Gradle wrapper) and did NOT apply it.",
+        "Identified the JitPack library com.github.barteksc:AndroidPdfViewer from the catalog as a manual-review item (did not silently miss it).",
+        "Did not propose the AGP-governed com.android.tools.utp:* tooling artifacts as catalog updates (recognized them as noise).",
+        "Presented a proposal BEFORE editing any file (gate respected).",
+        "Applied only safe updates to gradle/libs.versions.toml (e.g. gson and/or core-ktx and/or the compose BOM; no AGP major).",
+        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
+        "Committed on a NON-default branch (not main) with a chore(deps) style message and did not push.",
+        "User-facing response is written in English."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Update the dependencies in <FIXTURE>. Heads up: it's an Android app with a Gradle version catalog, and I know at least one library comes from JitPack (com.github.*) — make sure you don't miss it. Show me the full picture grouped by risk first; you can apply the safe ones and commit.",
+      "expected_output": "Explicitly locates com.github.barteksc:AndroidPdfViewer in the catalog (the plugin's blind spot), attempts to find its latest stable via JitPack metadata, and classifies it. Also handles the Compose BOM correctly (bump BOM, ignore children) and defers the AGP major. Applies the safe subset and commits on a branch. Responds in English.",
+      "files": [],
+      "assertions": [
+        "Explicitly located the JitPack entry com.github.barteksc:AndroidPdfViewer by reading the catalog, noting the gradle-versions-plugin does not track it.",
+        "Attempted to determine its latest stable version via JitPack metadata (maven-metadata.xml) or GitHub releases.",
+        "Recognized the Compose BOM governs compose-ui/material3 and proposed bumping only the BOM.",
+        "Classified AGP 8.7.3 -> 9.2.1 as a major and left it for the user (deferred).",
+        "Presented a risk-grouped proposal BEFORE editing (gate respected).",
+        "Applied only safe updates to gradle/libs.versions.toml.",
+        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
+        "Committed on a NON-default branch with a chore(deps) style message.",
+        "User-facing response is written in English."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Revisa las dependencias de mi proyecto Android en <FIXTURE> (usa catálogo de versiones en gradle/libs.versions.toml). Dime qué hay desactualizado agrupado por riesgo y actualiza solo las seguras, con su commit. Las majors (como saltar AGP a la 9) las decido yo.",
+      "expected_output": "Same controlled flow as eval 1 but the entire user-facing response is in Spanish (language mirroring). Detects updates, handles the Compose BOM (bump BOM, ignore children), defers the AGP major, flags the JitPack lib, applies the safe subset, verifies with :app:assembleDebug, and commits on a branch.",
+      "files": [],
+      "assertions": [
+        "Detected available updates via the gradle-versions-plugin (dependencyUpdates) or its report.",
+        "Recognized that compose-ui/material3 are governed by the Compose BOM and proposed bumping only the BOM.",
+        "Classified the AGP 8.7.3 -> 9.2.1 jump as MAJOR and did NOT apply it.",
+        "Identified the JitPack library com.github.barteksc:AndroidPdfViewer from the catalog as a manual-review item.",
+        "Presented a proposal BEFORE editing (gate respected).",
+        "Applied only safe updates to gradle/libs.versions.toml (coupled blocks kept consistent).",
+        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
+        "Committed on a NON-default branch with a chore(deps) style message.",
+        "User-facing response is written in SPANISH, matching the language of the prompt."
+      ]
+    }
+  ]
+}
