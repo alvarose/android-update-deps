@@ -4,6 +4,16 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] — 2026-07-11
+
+### Added
+- **Detection fallback when `dependencyUpdates` won't run** — a ben-manes × Gradle incompatibility
+  (e.g. `ConcurrentModificationException` on some Gradle 9.x, or a removed-API error): try a newer
+  ben-manes version with `--no-parallel`, and if it still fails, fall back to **manual metadata
+  detection**. The JitPack `maven-metadata.xml` technique generalizes to any repository (Maven
+  Central, Google's Maven repo), so detection is never blocked by the plugin; revert any temporary
+  plugin afterwards.
+
 ## [1.1.1] — 2026-07-11
 
 ### Fixed

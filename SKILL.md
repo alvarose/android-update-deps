@@ -67,6 +67,15 @@ dependency problem. The most common case is **`SDK location not found`**: the re
 `local.properties` with `sdk.dir=<path-to-Android-SDK>` (git-ignored, per-machine). Others:
 `keystore.properties`, `google-services.json`.
 
+**If the plugin itself fails to run** — a ben-manes × Gradle incompatibility, e.g. a
+`ConcurrentModificationException` or a removed-API error on a newer Gradle (not a problem with the
+project): try a **newer ben-manes version** and make sure you passed `--no-parallel`. If it still
+won't run, **don't get stuck — fall back to manual metadata detection.** The JitPack procedure
+([reference.md](reference.md#jitpack)) generalizes to any artifact: read each catalog dependency's
+`maven-metadata.xml` from its repository (Maven Central, Google's Maven repo, etc.) for the latest
+stable release and compare with the catalog. Slower, but it unblocks detection without the plugin —
+then revert any plugin you added temporarily.
+
 Prefer the plugin to reject pre-releases (alpha/beta/RC/SNAPSHOT) via `rejectVersionIf`; if it
 doesn't, filter unstable candidates yourself in step 3.
 

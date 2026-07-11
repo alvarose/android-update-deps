@@ -45,6 +45,11 @@ Manual procedure for `com.github.*` libs (the gradle-versions-plugin does not tr
    (`gh api repos/<owner>/<repo>/releases`) and, if you need to confirm API signatures, the source
    at the tag (`gh api …/contents/<path>?ref=<tag>`).
 
+> **General fallback:** the same `maven-metadata.xml` technique works for any repository — Maven
+> Central (`https://repo1.maven.org/maven2/<group→slashes>/<name>/maven-metadata.xml`) and Google's
+> Maven repo, not just JitPack. Use it to detect updates by hand when `dependencyUpdates` won't run
+> at all (e.g. a ben-manes × Gradle incompatibility).
+
 ## report.json format (ben-manes)
 
 Relevant structure produced by `dependencyUpdates`:
