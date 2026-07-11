@@ -23,7 +23,14 @@ This skill is generic; every repo differs. Before touching anything, learn the p
    versions may be inline in the `build.gradle.kts` files; say so — those files become the edit target.
 2. **Confirm the detection tool.** Check whether `ben-manes/gradle-versions-plugin` is applied
    (grep for `dependencyUpdates` / `com.github.ben-manes.versions` in the `build.gradle.kts`). If
-   it is **not** applied, offer to add it temporarily; don't assume it's there.
+   it is **not** applied, offer to add it temporarily. When you do, use its **latest stable version**
+   (look it up on the Gradle Plugin Portal / the plugin's releases) — a dependency-update tool
+   shouldn't introduce an *outdated* dependency; it only needs `0.52.0+` to run on Gradle 9.
+   Configure it so the rest of this flow works: **`outputFormatter = "json,plain"`** (the aggregate
+   script reads `report.json`, not `.txt`), **`gradleReleaseChannel = "current"`** (surfaces the
+   wrapper update — see the `gradle` section note below), and a **`rejectVersionIf { }`** that skips
+   pre-releases. **Revert this change once you have the report** — it's a detection aid, not part of
+   the update.
 3. **List JitPack dependencies** (`com.github.*` in the catalog) up front — they are the plugin's
    blind spot and must be checked by hand (step 1b, details in [reference.md](reference.md#jitpack)).
 4. **Map coupled version blocks.** Inspect `[versions]` and `[libraries]` for shared `version.ref`s

@@ -4,6 +4,16 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-07-11
+
+### Fixed
+- When the skill adds the ben-manes plugin temporarily (projects that don't already have it), it now
+  uses the plugin's **latest stable** version instead of pinning an old one — a dependency-update
+  tool shouldn't introduce an outdated dependency — and configures it correctly for the rest of the
+  flow: `outputFormatter = "json,plain"` (so `aggregate-updates.py` finds `report.json`),
+  `gradleReleaseChannel = "current"` (wrapper detection), and a `rejectVersionIf {}` that skips
+  pre-releases. It reverts the change after the report.
+
 ## [1.1.0] — 2026-07-11
 
 ### Changed
