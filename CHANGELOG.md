@@ -4,6 +4,17 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.3] — 2026-07-11
+
+### Added
+- **AGP 9 built-in Kotlin constraint**: on AGP 9+ (which ships a *built-in Kotlin*), KSP must be
+  compatible with that built-in Kotlin, which can cap how far Kotlin/KSP can be bumped (if no
+  compatible KSP exists yet, Kotlin is stuck) — verify the matrix before proposing a Kotlin bump.
+- **Step-down on verify failure**: when a bump doesn't compile, try the *highest version that still
+  compiles* before reverting outright — a library's latest may pull a too-new `kotlin-stdlib` the
+  project's compiler can't read, while the previous minor works (e.g. Coil `3.5.0` fails on a Kotlin
+  2.2 compiler but `3.4.0` compiles).
+
 ## [1.1.2] — 2026-07-11
 
 ### Added

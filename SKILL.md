@@ -143,8 +143,12 @@ Build to confirm nothing breaks. Default:
 ```
 If the changes touch testing/Kotlin/coroutines, add tests + linters for the affected modules
 (`./gradlew :<module>:testDebugUnitTest detekt`/`lint`). Full validation: `./gradlew build`.
-- **If it fails:** isolate the culprit bump (revert that `version.ref`), report the real error, and
-  return to the gate with an adjusted proposal. Never leave the tree in a broken state.
+- **If it fails:** isolate the culprit bump. Before reverting outright, try **stepping down to the
+  highest version that still compiles** — a library's *latest* may pull a too-new transitive (e.g. a
+  `kotlin-stdlib` the project's compiler can't read), while the previous minor works (real case: Coil
+  `3.5.0` drags stdlib 2.4 and fails on a Kotlin 2.2 compiler, but `3.4.0` → stdlib 2.3 compiles).
+  If nothing compiles, revert that `version.ref`. Either way report the real error and return to the
+  gate with the adjusted proposal. Never leave the tree in a broken state.
 
 ### 8. Commit (local, thematic)
 Before committing: confirm it's a git repo and that you are **not** on the default branch
