@@ -10,7 +10,7 @@ projects (adjust to what actually exists):
 
 | Block | Typical refs / artifacts | Rule |
 |---|---|---|
-| Kotlin | ref `kotlin` (kotlin-android, kotlin-jvm, kotlin-compose, kotlin-serialization) | Move together; a single `kotlin` ref bumps them all. Bumping Kotlin usually forces its satellites below (KSP, Compose Compiler, other compiler plugins) to move in lockstep. |
+| Kotlin | ref `kotlin` (kotlin-android, kotlin-jvm, kotlin-compose, kotlin-serialization) | Move together; a single `kotlin` ref bumps them all. Bumping Kotlin usually forces its satellites below (KSP, Compose Compiler, other compiler plugins) to move in lockstep. **Always high-risk: propose it separately and bump it only under its own explicit confirmation — never inside a "safe" batch** (blocking, cascading compiler change). |
 | KSP (plugin) | ref `ksp` | **Tied to the Kotlin version — two schemes, check which the repo uses.** **KSP1** `<kotlin>-<rev>` (e.g. Kotlin `2.0.21` → `2.0.21-1.0.28`): the prefix must equal the *exact* Kotlin version. **KSP2** `<kotlin-major.minor>.<patch>` (e.g. Kotlin `2.3.21` → `ksp 2.3.9`): tracks the Kotlin `major.minor` line — a Kotlin `2.3.x` → `2.4.0` bump needs a `2.4.x` KSP, while a Kotlin patch-only move may not. Either way, move `ksp` together with `kotlin`. The KSP *processors* you consume (Room compiler, etc., declared as `ksp(...)` deps) are independent and API-stable — usually no bump needed. |
 | Compose Compiler | Kotlin 2.0+: `org.jetbrains.kotlin.plugin.compose` (ref `kotlin`); Kotlin <2.0: `kotlinCompilerExtensionVersion` | **Tied to the Kotlin version.** Kotlin 2.0+: the Compose Compiler Gradle plugin uses the *same* version as Kotlin — bump together. Kotlin <2.0: set `kotlinCompilerExtensionVersion` to the Compose-compiler release compatible with that Kotlin. Distinct from the Compose BOM (runtime libs). |
 | AGP ↔ Gradle | ref `agp` + wrapper | A new AGP usually **requires** a newer Gradle (bump the wrapper), a compatible Android Studio, and sometimes a higher `compileSdk`/JDK — check the compatibility matrix. An AGP **major** is the highest-impact bump; treat it + wrapper as one deferred item. |
@@ -60,3 +60,6 @@ Relevant structure produced by `dependencyUpdates`:
 
 - `outdated` → candidates to bump (use `available.release`; if absent, `milestone`).
 - `unresolved` → JitPack libs land here; review them with the procedure above.
+- `gradle` (present only when `gradleReleaseChannel` is set) → the Gradle wrapper, **not** in
+  `outdated`: `running.version` is the wrapper's current version and `current.version` is the latest
+  stable, with `current.isUpdateAvailable`. `scripts/aggregate-updates.py` reads this section.

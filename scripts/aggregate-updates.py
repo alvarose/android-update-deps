@@ -29,9 +29,25 @@ def best_available(available):
     return None
 
 
+def gradle_update(data):
+    """Extract a Gradle wrapper update from the report's `gradle` section.
+
+    ben-manes reports the Gradle wrapper separately from `outdated` (only when
+    `gradleReleaseChannel = "current"` is configured). Returns (running, current)
+    if a stable update is available, else None.
+    """
+    g = data.get("gradle") or {}
+    current = g.get("current") or {}
+    running = g.get("running") or {}
+    if current.get("isUpdateAvailable") and current.get("version"):
+        return (running.get("version", "?"), current.get("version"))
+    return None
+
+
 def collect(reports):
     outdated = {}   # group:name -> (current, target)
     jitpack = {}    # group:name -> current
+    gradle = None   # (running, current) wrapper update, if any
     for path in reports:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -48,7 +64,9 @@ def collect(reports):
             if group.startswith("com.github."):
                 key = f"{group}:{dep.get('name')}"
                 jitpack[key] = dep.get("version", "?")
-    return outdated, jitpack
+        if gradle is None:
+            gradle = gradle_update(data)
+    return outdated, jitpack, gradle
 
 
 def main():
@@ -60,7 +78,13 @@ def main():
         return 1
 
     print(f"Reports found: {len(reports)}")
-    outdated, jitpack = collect(reports)
+    outdated, jitpack, gradle = collect(reports)
+
+    print("\n== Gradle wrapper (from the report's `gradle` section) ==")
+    if gradle:
+        print(f"  wrapper: {gradle[0]} -> {gradle[1]}  (its own item; needs its own confirmation)")
+    else:
+        print("  up to date, or `gradleReleaseChannel = \"current\"` not configured")
 
     print(f"\n== Outdated (deduped by group:name): {len(outdated)} ==")
     for key in sorted(outdated):

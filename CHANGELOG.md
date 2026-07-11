@@ -4,6 +4,25 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-07-11
+
+### Changed
+- **Blocking toolchain bumps now always require their own explicit confirmation** and never sit in
+  the "safe" batch — the Kotlin version (with its coupled KSP / Compose Compiler), AGP, and the
+  Gradle wrapper. An "apply the safe ones" approval never moves them, even for a minor/patch.
+
+### Added
+- **Explicit KSP handling**: a coupled KSP bump rides Kotlin's confirmation (no double-ask); a
+  standalone KSP bump (same Kotlin line) is "handle with care" — it drives annotation processing
+  (Room, Hilt) — not "safe".
+- **Gradle wrapper detection**: `scripts/aggregate-updates.py` now surfaces the wrapper update from
+  the report's `gradle` section (requires `gradleReleaseChannel = "current"`); documented in
+  `SKILL.md` and `reference.md`.
+- **SDK-level scope boundary** (`compileSdk` / `minSdk` / `targetSdk`): raise `compileSdk` only when
+  a confirmed dependency requires it (coupled, high-risk, own confirmation); `targetSdk` is out of
+  scope (a Play-Store behavior migration — flagged and deferred); `minSdk` is not changed but flagged
+  when a dependency raises the effective minimum.
+
 ## [1.0.0] — 2026-07-10
 
 First public release.

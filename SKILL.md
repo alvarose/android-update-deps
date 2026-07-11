@@ -45,7 +45,11 @@ Key facts for a catalog-based project:
 - On **Gradle 9+**, `dependencyUpdates` **must** run without parallelism or it only scans the root
   module (`--no-parallel`). Each project writes `build/dependencyUpdates/report.json`.
 - The **Gradle wrapper is not in the catalog** — bump it in `gradle/wrapper/gradle-wrapper.properties`,
-  preferably via `./gradlew wrapper --gradle-version=X`.
+  preferably via `./gradlew wrapper --gradle-version=X`. Its *available* version isn't in the report's
+  `outdated` bucket either: ben-manes reports it in a separate `gradle` section (only when
+  `gradleReleaseChannel = "current"` is set), which `scripts/aggregate-updates.py` surfaces for you.
+  Treat it as its own item with its own confirmation (bump it alongside AGP when an AGP upgrade
+  requires it).
 
 ## Procedure
 
@@ -90,13 +94,26 @@ Judge each item on more than the version number:
 - **Security & license:** treat a current version with known vulnerabilities as a reason to
   prioritize the bump (Android Studio flags vulnerable libraries via the Play SDK Index). On majors,
   watch for a changed license.
-- The Gradle wrapper and AGP are always their own items (an AGP major ⇒ Gradle + Studio, often
-  `compileSdk`/JDK too).
+- **Blocking toolchain bumps always get their own explicit yes — never the "safe" bucket.** The
+  **Kotlin version** is never "safe", not even for a minor/patch: it's a cascading compiler change
+  that drags `ksp`, the Compose Compiler, and every Kotlin compiler plugin with it, and can break
+  annotation processing or Compose. Always list `kotlin` (with its coupled block) separately under
+  "handle with care" and require a **distinct confirmation** — an "apply the safe ones" approval must
+  never move it. The same applies to **AGP** and the **Gradle wrapper** (an AGP major ⇒ Gradle +
+  Studio, often `compileSdk`/JDK too): their own items, their own yes.
+- **KSP follows Kotlin.** When Kotlin moves, `ksp` moves under the *same* confirmation — don't ask
+  twice. A **standalone** `ksp` bump (same Kotlin line, e.g. a KSP-only patch) isn't "safe" either:
+  it drives annotation processing (Room, Hilt), so put it under "handle with care" with its own note
+  — the verify build (step 7) catches codegen breakage. The Compose Compiler shares the `kotlin` ref,
+  so it always rides Kotlin's confirmation automatically.
 
 ### 5. Propose (GATE)
 Present a table: `catalog key | current → proposed | risk | note/changelog`, grouped into "safe"
 vs "handle with care". **Stop and wait for explicit confirmation.** Let the user pick a subset
 (all / safe only / a specific list). Do not edit anything until they say go.
+- The **Kotlin version** (and **AGP**) must **never** sit in the "safe" group: an "apply the safe
+  ones" / "solo las seguras" approval must exclude them. They only move on their own explicit yes,
+  called out as separate line items — even for a minor/patch.
 
 ### 6. Apply (only what was confirmed)
 - Edit the `version.ref`s in `gradle/libs.versions.toml` (with `Edit`).
@@ -165,3 +182,14 @@ deprecations.
   bumps, diff the resolved graph (`./gradlew :app:dependencies`, or a snapshot tool) to catch
   version conflicts (search for `->`) and new AAR contributions (permissions/components added via
   manifest merge).
+- **SDK levels (`compileSdk` / `minSdk` / `targetSdk`) are not catalog dependencies.** They live in
+  the module `android {}` block or the convention plugins (`build-logic/`), sometimes surfaced as a
+  `[versions]` value, and ben-manes does not track them. Scope for this skill:
+  - **`compileSdk`** — raise it *only* when a confirmed dependency requires it (a "hidden
+    requirement", step 4). Treat that as a coupled, high-risk item with its own confirmation; never
+    bump it speculatively to chase new APIs.
+  - **`targetSdk`** — **out of scope.** Raising it is a Play-Store-driven *behavior* migration (new
+    permissions, behavior changes, its own testing). Flag it and defer to Android Studio's SDK
+    Upgrade Assistant / a dedicated pass; don't move it as part of a dependency update.
+  - **`minSdk`** — don't change it (a product decision that drops device support), but **flag** when
+    a dependency bump raises the *effective* `minSdk`.
