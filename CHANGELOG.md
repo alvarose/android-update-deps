@@ -4,7 +4,7 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [1.2.0] — 2026-07-11
+## [1.2.0] — 2026-08-06
 
 ### Changed
 - **Cross-agent portability.** Aligned with the [AgentSkills.io](https://agentskills.io) open format
