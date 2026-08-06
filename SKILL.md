@@ -2,6 +2,10 @@
 name: android-update-deps
 description: Reviews and safely updates the dependencies of an Android project (Android Studio; Kotlin/Gradle) that uses a Gradle version catalog. Detects available updates with the ben-manes gradle-versions-plugin, checks JitPack libraries by hand (the plugin's blind spot), assesses risk, and — only after explicit confirmation — edits libs.versions.toml, verifies with an Android build (:app:assembleDebug), commits locally, and in a separate commit adapts the existing code to the new APIs. Use this whenever the user wants to update, review, or bump dependencies in an Android app, asks "what's outdated", mentions libs.versions.toml / version catalog / AGP / Compose BOM upgrades, or runs /android-update-deps — in English or Spanish ("actualiza/revisa las dependencias", "qué hay desactualizado").
 license: MIT
+compatibility: Requires an Android/Kotlin Gradle project (ideally with a version catalog), the ben-manes gradle-versions-plugin, and the Android SDK.
+metadata:
+  author: alvarose
+  version: "1.2.0"
 ---
 
 # android-update-deps — controlled dependency review & update
@@ -13,7 +17,7 @@ other language they use). **Never apply a change without explicit confirmation**
 is gated on purpose (step 5). Bumping dependencies silently is how a working build breaks.
 
 > **Commands:** examples use `./gradlew` (Unix/macOS/Git Bash). On **Windows PowerShell** use
-> `.\gradlew.bat`. If the Bash tool is available, run them there so `./gradlew` works on any OS.
+> `.\gradlew.bat`. If a Bash/shell terminal is available, run them there so `./gradlew` works on any OS.
 
 ## Discovery (do this first in a new repo)
 
@@ -32,9 +36,9 @@ This skill is generic; every repo differs. Before touching anything, learn the p
    pre-releases. **Revert this change once you have the report** — it's a detection aid, not part of
    the update.
 3. **List JitPack dependencies** (`com.github.*` in the catalog) up front — they are the plugin's
-   blind spot and must be checked by hand (step 1b, details in [reference.md](reference.md#jitpack)).
+   blind spot and must be checked by hand (step 1b, details in [references/reference.md](references/reference.md#jitpack)).
 4. **Map coupled version blocks.** Inspect `[versions]` and `[libraries]` for shared `version.ref`s
-   and BOMs, and build the project's coupling table — see [reference.md](reference.md#coupled-versions).
+   and BOMs, and build the project's coupling table — see [references/reference.md](references/reference.md#coupled-versions).
    General rule: **any set of artifacts sharing a `version.ref` or governed by a BOM is a single item.**
 5. **Find the Android SDK, the JDK/compileSdk baseline, and the wrapper.** The Android SDK path
    comes from the repo's own `local.properties` (`sdk.dir=…`) — it is per-machine and git-ignored,
@@ -43,8 +47,8 @@ This skill is generic; every repo differs. Before touching anything, learn the p
    `includeBuild("build-logic")` in `settings.gradle.kts`) or in the module `build.gradle.kts`; the
    Gradle wrapper is in `gradle/wrapper/gradle-wrapper.properties`.
 
-> If the repo has a `CLAUDE.md`, `AGENTS.md`, or `.docs/` with build conventions, read it: it may
-> pin where versions live and which libs are coupled.
+> If the repo has an `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, or `.docs/` with build conventions, read
+> it: it may pin where versions live and which libs are coupled.
 
 Key facts for a catalog-based project:
 - With convention plugins, module `build.gradle.kts` files declare **no** versions — the catalog is
@@ -71,7 +75,7 @@ dependency problem. The most common case is **`SDK location not found`**: the re
 `ConcurrentModificationException` or a removed-API error on a newer Gradle (not a problem with the
 project): try a **newer ben-manes version** and make sure you passed `--no-parallel`. If it still
 won't run, **don't get stuck — fall back to manual metadata detection.** The JitPack procedure
-([reference.md](reference.md#jitpack)) generalizes to any artifact: read each catalog dependency's
+([references/reference.md](references/reference.md#jitpack)) generalizes to any artifact: read each catalog dependency's
 `maven-metadata.xml` from its repository (Maven Central, Google's Maven repo, etc.) for the latest
 stable release and compare with the catalog. Slower, but it unblocks detection without the plugin —
 then revert any plugin you added temporarily.
@@ -81,7 +85,7 @@ doesn't, filter unstable candidates yourself in step 3.
 
 ### 1b. Detect sources the plugin doesn't track (JitPack)
 The step-1 report **never** includes JitPack libs (`com.github.*`) — they land in `unresolved`.
-Check them by hand following [reference.md](reference.md#jitpack) (build the metadata URL, read
+Check them by hand following [references/reference.md](references/reference.md#jitpack) (build the metadata URL, read
 `<release>`, compare with the catalog, classify by risk).
 
 ### 2. Aggregate and deduplicate
@@ -97,7 +101,7 @@ by hand from the `report.json` files. Map each dependency to its **key in `libs.
 - **Drop** any artifact governed by a BOM without its own `version.ref` (`androidx.compose.*` under
   `composeBom`, Firebase artifacts under their BOM, etc.). Only consider the BOM bump.
 - Drop pre-release candidates if the plugin didn't already.
-- Group coupled blocks (see [reference.md](reference.md#coupled-versions)) into a single item
+- Group coupled blocks (see [references/reference.md](references/reference.md#coupled-versions)) into a single item
   (e.g. "Kotlin X → Y ⇒ move KSP to Z").
 
 ### 4. Classify by risk
@@ -132,7 +136,7 @@ vs "handle with care". **Stop and wait for explicit confirmation.** Let the user
   called out as separate line items — even for a minor/patch.
 
 ### 6. Apply (only what was confirmed)
-- Edit the `version.ref`s in `gradle/libs.versions.toml` (with `Edit`).
+- Edit the `version.ref`s in `gradle/libs.versions.toml`.
 - Respect coupled blocks: if you bump `kotlin`, move `ksp` to the matching version in the same change.
 - The wrapper, if included, via `./gradlew wrapper --gradle-version=<X>`.
 
@@ -176,13 +180,13 @@ deprecations.
    ./gradlew lint detekt
    ```
    List the new deprecation warnings attributable to the bumps (as file:line).
-2. **Read the migration guide** for each relevant major/minor: `WebFetch` the changelog URL the
+2. **Read the migration guide** for each relevant major/minor: fetch the changelog URL the
    plugin's report **already provides**. Extract deprecated/renamed APIs and behavior changes.
-3. **Find usages in the code.** `Grep` the old symbols across production and tests; map occurrences
-   to file:line.
+3. **Find usages in the code.** Search the code for the old symbols across production and tests; map
+   occurrences to file:line.
 4. **Propose (GATE).** For each finding: what changes, why (cite the changelog), affected files, and
    the suggested refactor. Wait for confirmation. **If there's nothing to adapt, say so explicitly.**
-5. **Apply and re-verify** what was confirmed (`Edit` + build/tests/linters for what you touched).
+5. **Apply and re-verify** what was confirmed (edit + build/tests/linters for what you touched).
 6. **Separate thematic commit:** `refactor(deps): adapt <X> to <lib> <version> API`. One lib or
    theme per commit.
 
@@ -193,7 +197,7 @@ deprecations.
 - **Optional automation:** littlerobots' `version-catalog-update-plugin` can write the TOML
   automatically from the report. This skill deliberately keeps the **manual gated** flow; if the
   user prefers the automated one, apply it only after the same GATE in step 5.
-- Adapt the "coupled versions" table ([reference.md](reference.md)) to the concrete repo's catalog;
+- Adapt the "coupled versions" table ([references/reference.md](references/reference.md)) to the concrete repo's catalog;
   don't assume every block exists.
 - **Supply chain:** if the project doesn't already use Gradle
   [dependency verification](https://developer.android.com/build/dependency-verification), suggest

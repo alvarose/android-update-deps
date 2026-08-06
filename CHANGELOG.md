@@ -4,6 +4,19 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-07-11
+
+### Changed
+- **Cross-agent portability.** Aligned with the [AgentSkills.io](https://agentskills.io) open format
+  so the same `SKILL.md` folder works in Claude Code, OpenAI Codex, Gemini CLI, and other compatible
+  agents. Added the standard `metadata` (author, version) and `compatibility` frontmatter fields, and
+  moved `reference.md` → `references/reference.md` (idiomatic layout).
+- **Agent-neutral wording.** Replaced Claude-specific tool references in the instructions with generic
+  verbs (edit / fetch / search) and reframed the docs from "Claude skill" to "agent skill". The Claude
+  plugin (`.claude-plugin/`) is kept for one-command `/plugin install`.
+- **Multi-agent install docs.** README now covers Claude Code (plugin or `~/.claude/skills/`), Gemini
+  CLI (`gemini skills install <git-url>`), OpenAI Codex, and the universal `~/.agents/skills/` directory.
+
 ## [1.1.3] — 2026-07-11
 
 ### Added

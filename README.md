@@ -1,10 +1,12 @@
 # android-update-deps
 
-> A Claude skill for the **safe, gated review and update of dependencies** in an Android
-> (Kotlin/Gradle) project that uses a Gradle version catalog.
+> An **[Agent Skill](https://agentskills.io)** for the **safe, gated review and update of
+> dependencies** in an Android (Kotlin/Gradle) project that uses a Gradle version catalog. One
+> `SKILL.md` folder that works with Claude Code, OpenAI Codex, Gemini CLI, and any
+> Agent-Skills-compatible tool.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Claude Skill](https://img.shields.io/badge/Claude-Skill-8A2BE2)
+![Agent Skill](https://img.shields.io/badge/Agent-Skill-6E56CF)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Kotlin%20%7C%20Gradle-3DDC84)
 
 Upgrading dependencies is easy to get wrong: automated bumpers jump every library to its latest
@@ -62,27 +64,45 @@ A fixed, repeatable procedure (the skill stops at step 5 for your approval):
 
 ## Installation
 
-### Option 1 — Claude Code plugin (recommended)
+Agent Skills are an [open format](https://agentskills.io/specification) — the same `SKILL.md` folder
+works across compatible agents. Install it wherever your agent looks for skills.
 
-Add this repo as a plugin marketplace and install in one command:
+### Any agent — universal `.agents/skills/`
+
+Codex, Gemini CLI, VS Code and others scan a shared skills directory. Clone the repo there:
+
+```bash
+# user-level (all your projects)
+git clone https://github.com/alvarose/android-update-deps.git ~/.agents/skills/android-update-deps
+
+# or project-scoped
+git clone https://github.com/alvarose/android-update-deps.git .agents/skills/android-update-deps
+```
+
+### Gemini CLI
+
+```bash
+gemini skills install https://github.com/alvarose/android-update-deps --consent
+```
+
+### OpenAI Codex
+
+Place the folder in `~/.agents/skills/android-update-deps/` (or a repo `.agents/skills/`), then
+mention it in chat with `$skills`.
+
+### Claude Code
+
+Install as a plugin (one command), then update with `/plugin update android-update-deps@alvarose`:
 
 ```
 /plugin marketplace add alvarose/android-update-deps
 /plugin install android-update-deps@alvarose
 ```
 
-Update later with `/plugin update android-update-deps@alvarose`.
-
-### Option 2 — Manual skill install
-
-Clone into a directory Claude Code scans for [skills](https://code.claude.com/docs/en/skills):
+…or clone into a directory Claude scans for [skills](https://code.claude.com/docs/en/skills):
 
 ```bash
-# Personal (all your projects)
 git clone https://github.com/alvarose/android-update-deps.git ~/.claude/skills/android-update-deps
-
-# or project-scoped (share it via your repo)
-git clone https://github.com/alvarose/android-update-deps.git .claude/skills/android-update-deps
 ```
 
 Or download the packaged `android-update-deps.skill` from the
@@ -90,14 +110,14 @@ Or download the packaged `android-update-deps.skill` from the
 
 ## Usage
 
-Once installed, just ask Claude in an Android project — the skill triggers on phrases like:
+Once installed, just ask your agent in an Android project — the skill triggers on phrases like:
 
 - "review / update / bump the dependencies of my Android app"
 - "what's outdated in my `libs.versions.toml`?"
 - "actualiza las dependencias, solo las seguras"
-- or run `/android-update-deps`
+- or invoke it by name (e.g. `/android-update-deps` in Claude Code, `$skills` in Codex, `/skills` in Gemini CLI)
 
-Claude will detect, analyze, and show you a risk-grouped proposal. You pick what to apply; it
+The agent will detect, analyze, and show you a risk-grouped proposal. You pick what to apply; it
 verifies with a build and commits on a branch. **It won't touch anything without your OK.**
 
 ## Requirements
@@ -111,11 +131,12 @@ verifies with a build and commits on a branch. **It won't touch anything without
 
 ```
 android-update-deps/
-├── .claude-plugin/   # plugin + marketplace manifests (for /plugin install)
 ├── SKILL.md          # the skill: discovery, the 9-step gated procedure
-├── reference.md      # coupled-versions table, JitPack procedure, report.json format
+├── references/
+│   └── reference.md  # coupled-versions table, JitPack procedure, report.json format
 ├── scripts/
 │   └── aggregate-updates.py   # dedupe report.json across modules; list JitPack libs
+├── .claude-plugin/   # Claude-specific plugin + marketplace manifests (for /plugin install)
 ├── evals/            # evaluation prompts + assertions used to test the skill
 ├── CHANGELOG.md
 ├── LICENSE
