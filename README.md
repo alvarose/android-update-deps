@@ -29,6 +29,9 @@ Gradle Plugin (including AGP 9 built-in Kotlin), Compose/Firebase BOMs, coupled 
 - **Sees the whole picture, not just version numbers.** It groups coupled blocks and BOM-governed
   artifacts into single items, separates AGP/Kotlin tooling noise, and checks *hidden requirements*
   **before** proposing (a "safe-looking" minor whose AAR actually needs a higher `compileSdk` or AGP).
+- **Security and Google Play first.** Libraries with known vulnerabilities, native code that isn't
+  16 KB aligned (required by Play for Android 15+ targets) or Play SDK Index findings go to the top,
+  with the smallest version that fixes them.
 - **Doesn't touch your build to look.** If the project doesn't use the ben-manes plugin, the skill
   injects it with a Gradle init script instead of editing `build.gradle.kts`.
 - **Covers the tool's blind spot.** The ben-manes `gradle-versions-plugin` can't see JitPack
@@ -50,7 +53,8 @@ Gradle Plugin (including AGP 9 built-in Kotlin), Compose/Firebase BOMs, coupled 
 | **JitPack** (`com.github.*`) | Checked against JitPack metadata, used or not (the plugin's blind spot) |
 | **BOMs** (Compose, Firebase, …) | Bumps only the BOM; ignores the governed child artifacts in the report |
 | **Coupled blocks** | Kotlin ↔ Compose Compiler, KSP (old vs. 2.3+ scheme), AGP ↔ Gradle wrapper, Retrofit, OkHttp, Room, Hilt… treated as single items |
-| **Risk** | Semver magnitude + hidden `compileSdk`/AGP/Kotlin requirements (read from AAR metadata) + known vulnerabilities + license changes |
+| **Risk** | Semver magnitude + hidden `compileSdk`/AGP/Kotlin requirements (read from AAR metadata) + release age + license changes |
+| **Security & Google Play** | Known vulnerabilities (OSV) of the current and proposed versions, 16 KB alignment of native libraries, Play SDK Index findings from lint — with the smallest step that fixes them |
 | **Verification** | `:app:assembleDebug` (plus tests/linters when relevant); steps down or reverts any culprit bump |
 | **Code adaptation** | Post-bump deprecation/migration pass, in a separate `refactor(deps)` commit |
 
@@ -152,6 +156,8 @@ So you can review it before installing:
   Gradle upgrade.
 - **Python scripts** (standard library only) that read the catalog and the plugin's reports
   (`plan.py`, `aggregate-updates.py`). They never edit your project.
+- **Vulnerability queries** to the [OSV API](https://osv.dev) (`api.osv.dev`): only Maven coordinates
+  and versions are sent.
 - **Network reads** of Maven metadata, POMs and AARs (Google Maven, Maven Central, Gradle Plugin
   Portal, JitPack), of `services.gradle.org` (latest Gradle), and of changelogs / GitHub releases.
 - **git**: creates a branch and local commits. It never pushes unless you ask.
@@ -167,6 +173,7 @@ android-update-deps/
 │       │   └── reference.md        # coupled versions, hidden requirements, JitPack, report format
 │       └── scripts/
 │           ├── plan.py                     # draft the tiered proposal (--json available)
+│           ├── risk.py                     # vulnerabilities, 16 KB, lint, release notes
 │           ├── aggregate-updates.py        # raw view of the ben-manes report
 │           └── versions.init.gradle.kts    # inject ben-manes without editing the build
 ├── .claude-plugin/                 # Claude Code plugin + marketplace manifests
@@ -194,10 +201,10 @@ python3 -m unittest discover -s tests -v
 repositories.
 
 When you change the skill's `description`, check that it still triggers when it should, and only
-then. [`evals/triggers/`](evals/triggers/) holds 19 realistic requests for
-[`claude plugin eval`](https://code.claude.com/docs/en/plugins/evals): 9 should load the skill;
-10 are near-misses that shouldn't (other ecosystems, adding a new library, `targetSdk`, Renovate,
-build errors). These are real model calls on your account:
+then. [`evals/triggers/`](evals/triggers/) holds 22 realistic requests for
+[`claude plugin eval`](https://code.claude.com/docs/en/plugins/evals): 11 should load the skill;
+11 are near-misses that shouldn't (other ecosystems, adding a new library, `targetSdk`, Renovate,
+build errors, 16 KB for the app's own NDK code). These are real model calls on your account:
 
 ```bash
 claude plugin eval . --tag trigger --ablation none --threshold 0.6 --trust-plugin

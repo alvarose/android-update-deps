@@ -4,6 +4,7 @@ Run from the repo root:  python3 -m unittest discover -s tests -v
 """
 import importlib.util
 import io
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -53,21 +54,47 @@ def metadata_xml(*versions):
     return f"<metadata><versioning><versions>{body}</versions></versioning></metadata>".encode()
 
 
-def aar(min_sdk, min_agp="8.0.0"):
+def elf64(align):
+    """A minimal little-endian ELF64 with one PT_LOAD segment aligned to `align`."""
+    header = bytearray(64)
+    header[:6] = b"\x7fELF\x02\x01"
+    struct.pack_into("<Q", header, 0x20, 64)       # e_phoff
+    struct.pack_into("<HH", header, 0x36, 56, 1)   # e_phentsize, e_phnum
+    load = bytearray(56)
+    struct.pack_into("<I", load, 0, 1)             # PT_LOAD
+    struct.pack_into("<Q", load, 0x30, align)      # p_align
+    return bytes(header + load)
+
+
+def aar(min_sdk, min_agp="8.0.0", native=None):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("META-INF/com/android/build/gradle/aar-metadata.properties",
                    f"minCompileSdk={min_sdk}\nminAndroidGradlePluginVersion={min_agp}\n")
+        if native:
+            z.writestr("jni/arm64-v8a/libnative.so", elf64(native))
+            z.writestr("jni/armeabi-v7a/libnative.so", elf64(4096))  # 32-bit: not checked
     return buf.getvalue()
 
 
+def osv_answer(vid, fixed, severity="HIGH"):
+    return {"vulns": [{"id": vid, "aliases": ["CVE-2022-0001"], "summary": "bad",
+                       "database_specific": {"severity": severity},
+                       "affected": [{"package": {"ecosystem": "Maven", "name": "androidx.core:core-ktx"},
+                                     "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}]}]}]}
+
+
 class FakeNet(plan.Net):
-    def __init__(self, responses, age=30):
+    def __init__(self, responses, age=30, osv=None):
         super().__init__(offline=False)
-        self.responses, self.age = responses, age
+        self.responses, self.age, self.osv = responses, age, osv or {}
 
     def get(self, url):
         return self.responses.get(url)
+
+    def post_json(self, url, payload):
+        # OSV answers keyed by (group:name, version); no advisories otherwise
+        return self.osv.get((payload["package"]["name"], payload["version"]), {})
 
     def age_days(self, url):
         return self.age
@@ -134,6 +161,21 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(plan.usage(units["plugins.ksp"], refs), "declared")
         self.assertEqual(plan.usage(units["libraries.gson"], refs), "unused")  # commented out
         self.assertEqual(plan.usage(units["retrofit"], refs), "used")
+
+    def test_lint_findings_map_to_units(self):
+        units = plan.build_units(self.cat)
+        line = self.cat["versions"]["coreKtx"]["line"]
+        findings = [
+            {"id": "PlaySdkIndexVulnerability", "file": r"C:\app\gradle\libs.versions.toml", "line": line,
+             "message": "has a vulnerability"},
+            {"id": "PlaySdkIndexDeprecated", "file": "app/build.gradle.kts", "line": 3,
+             "message": "com.google.code.gson:gson version 2.10 is deprecated"},
+            {"id": "RiskyLibrary", "file": "app/build.gradle.kts", "line": 9, "message": "org.other:thing is risky"},
+        ]
+        mapped, rest = plan.map_lint(findings, units, self.cat, self.path)
+        self.assertEqual([f["id"] for f in mapped["coreKtx"]], ["PlaySdkIndexVulnerability"])
+        self.assertEqual([f["id"] for f in mapped["libraries.gson"]], ["PlaySdkIndexDeprecated"])
+        self.assertEqual([f["id"] for f in rest], ["RiskyLibrary"])
 
     def test_reference_scan_needs_full_accessor(self):
         refs = plan.scan_references({"a.gradle.kts": "implementation(libs.androidx.core)\n"}, self.cat)
@@ -289,6 +331,46 @@ class AnalyseTests(unittest.TestCase):
         self.assertIn("not referenced", text)
         self.assertIn("not published", text)
         self.assertIn("latest stable (2.0.2)", text)
+
+    def test_vulnerable_current_gets_a_fixing_alternative(self):
+        net = self.net()
+        net.osv = {("androidx.core:core-ktx", "1.16.0"): osv_answer("GHSA-test", "1.17.0")}
+        u = plan.analyse(self.unit(), self.ctx(net))
+        self.assertIn("security", u["flags"])
+        self.assertEqual(u["vulns"], ["GHSA-test"])
+        text = " ".join(u["reasons"])
+        self.assertIn("affected by GHSA-test (HIGH; CVE-2022-0001); first fixed in 1.17.0", text)
+        self.assertIn("1.19.1 fixes them", text)
+        self.assertEqual(u["sibling"]["target"], "1.18.0")
+        self.assertIn("closes GHSA-test", u["sibling"]["reasons"])
+        self.assertEqual(u["sibling"]["flags"], ["security"])
+
+    def test_alternative_still_affected_is_dropped(self):
+        net = self.net()
+        net.osv = {("androidx.core:core-ktx", "1.16.0"): osv_answer("GHSA-test", "1.17.0"),
+                   ("androidx.core:core-ktx", "1.18.0"): osv_answer("GHSA-test", "1.17.0")}
+        u = plan.analyse(self.unit(), self.ctx(net))
+        self.assertIsNone(u["alternative"])
+        self.assertIsNone(u["sibling"])
+
+    def test_16k_alignment_and_aligned_step(self):
+        g = plan.GOOGLE
+        net = self.net(**{art(g, "androidx.core", "core-ktx", v, "aar"): aar(35, native=n) for v, n in
+                          (("1.16.0", 4096), ("1.17.0", 4096), ("1.18.0", 16384), ("1.19.1", 16384))})
+        u = plan.analyse(self.unit(), self.ctx(net))
+        self.assertIn("16kb", u["flags"])
+        self.assertIn("1.16.0 ships native libraries that aren't 16 KB aligned (libnative.so)", " ".join(u["reasons"]))
+        self.assertEqual(u["alternative"], "1.18.0")  # 1.17.0, the cautious step, is still 4 KB
+        self.assertEqual(u["sibling"]["flags"], ["16kb"])
+
+    def test_blocking_lint_without_a_newer_release(self):
+        net = FakeNet({md(plan.GOOGLE, "androidx.core", "core-ktx"): metadata_xml("1.15.0", "1.16.0")})
+        ctx = self.ctx(net)
+        ctx["lint"] = {"coreKtx": [{"id": "PlaySdkIndexNonCompliant", "message": "violates a Play policy"}]}
+        u = plan.analyse(self.unit(), ctx)
+        self.assertEqual(u["tier"], "decision")
+        self.assertIn("sdk-index", u["flags"])
+        self.assertIn("lint PlaySdkIndexNonCompliant: violates a Play policy", u["reasons"])
 
     def test_compile_sdk_needs_become_one_decision(self):
         items = [{"key": k, "kind": "library", "tier": "care", "target": "x", "reasons": [],

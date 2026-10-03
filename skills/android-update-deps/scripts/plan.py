@@ -48,6 +48,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import risk  # noqa: E402  (risk.py sits next to this script)
 
 # A release younger than this has not had time for regressions to be reported.
 # Dependabot uses the same default cooldown.
@@ -388,6 +390,27 @@ class Net:
             self._cache[url] = data
         return data
 
+    def post_json(self, url, payload):
+        """POST a JSON body and parse the JSON answer (cached by URL and body)."""
+        if self.offline:
+            return None
+        body = json.dumps(payload, sort_keys=True)
+        key = f"POST {url} {body}"
+        with self._lock:
+            if key in self._cache:
+                return self._cache[key]
+        data = None
+        req = urllib.request.Request(url, data=body.encode(), method="POST",
+                                     headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
+                data = json.loads(r.read())
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            warn(f"{url}: {e}")
+        with self._lock:
+            self._cache[key] = data
+        return data
+
     def age_days(self, url):
         if self.offline:
             return None
@@ -649,10 +672,18 @@ def library_gaps(net, base, m, version, repo_url):
     return []
 
 
-def bom_gaps(net, base, unit, version, children, repo_url):
-    bom = unit["members"][0]
+def bom_managed(net, repo_url, bom, version):
     deps = pom_deps(net, repo_url, bom["group"], bom["name"], version) or []
-    managed = {f"{d.get('groupId')}:{d.get('artifactId')}": d.get("version") for d in deps}
+    return {f"{d.get('groupId')}:{d.get('artifactId')}": d.get("version") for d in deps}
+
+
+def bom_gaps(net, base, unit, version, children, repo_url, current=None):
+    """Requirements of the children the project uses, at the BOM `version`. With
+    `current`, `moved` says what each child moves from and to (a BOM bump is the sum
+    of its children's bumps)."""
+    bom = unit["members"][0]
+    managed = bom_managed(net, repo_url, bom, version)
+    before = bom_managed(net, repo_url, bom, current) if current else {}
     gaps, moved = [], []
     used = [c for c in children.values() if c["bom"] == bom["alias"]]
     for child in used[:MAX_STEPDOWN_PROBES]:
@@ -660,7 +691,12 @@ def bom_gaps(net, base, unit, version, children, repo_url):
         if not cver:
             continue
         group, name = child["coord"].split(":")
-        moved.append(f"{name} {cver}")
+        old = before.get(child["coord"])
+        if old and old != cver:
+            major = " (major)" if nums(old)[0] != nums(cver)[0] else ""
+            moved.append(f"{name} {old} -> {cver}{major}")
+        elif not old:
+            moved.append(f"{name} {cver}")
         req = aar_requirements(net, GOOGLE if group.startswith(GOOGLE_GROUPS) else CENTRAL, group, name, cver)
         for g in requirement_gaps(req, None, base):
             if g["msg"] not in {x["msg"] for x in gaps}:
@@ -695,7 +731,7 @@ def unused_reason(kind, state, base):
 def analyse(unit, ctx):
     net, base, report = ctx["net"], ctx["base"], ctx["report"]
     u = dict(unit, reasons=[], tier="safe", own_confirmation=False, target=None, alternative=None,
-             moves=[], age_days=None, needs=[], sibling=None)
+             moves=[], age_days=None, needs=[], sibling=None, flags=[], vulns=[], notes_url=None)
     u["members_view"] = [m["alias"] for m in unit["members"]]
     cur = unit["current"]
     if unit["rich"] or not cur:
@@ -743,7 +779,27 @@ def analyse(unit, ctx):
         u["reasons"].append(f"current {cur} is newer than the latest stable ({latest_stable}): "
                             "keep it deliberately or move back to a stable release")
         u["tier"] = "decision"
+
+    # security and Play findings on the current version matter even with nothing newer
+    lib_coords = [m["coord"] for m in unit["members"] if m["section"] == "libraries"]
+    check = not ctx["offline"] and not unused and bool(lib_coords)
+    vulns = risk.vulnerabilities(net, lib_coords, cur) if check else []
+    fix = fix_version(versions, cur, vulns) if vulns else None
+    if vulns:
+        u["flags"].append("security")
+        u["vulns"] = [v["id"] for v in vulns]
+        u["reasons"].append(f"security: {cur} is affected by {risk.describe(vulns)}; "
+                            + (f"first fixed in {fix}" if fix else "no stable release fixes all of them"))
+    findings = [] if unused else ctx.get("lint", {}).get(unit["key"], [])
+    for f in findings:
+        u["flags"].append("16kb" if f["id"] == "Aligned16KB" else "sdk-index")
+        u["reasons"].append(f"lint {f['id']}: {f['message']}")
+    blocking = vulns or any(f["id"] in risk.LINT_BLOCKING for f in findings)
+
     if target is None:
+        if blocking and u["tier"] != "decision":
+            u["tier"] = "decision"
+            u["reasons"].append("no newer stable release: decide whether to keep it, replace it or wait")
         if u["tier"] == "decision":
             return u
         u["tier"] = "current"
@@ -768,11 +824,39 @@ def analyse(unit, ctx):
         u["reasons"].append(f"skips {size} minors: read the release notes in between")
     if holds:
         u["reasons"].append("held in the catalog: " + " | ".join(holds))
+    hand = risk.handoff(kind, (lib_coords or [None])[0], nums(cur)[0], nums(target)[0])
+    if hand:
+        u["reasons"].append(hand)
+
+    target_vulns = risk.vulnerabilities(net, lib_coords, target) if check else []
+    if target_vulns:
+        u["flags"].append("security")
+        u["reasons"].append(f"security: {target} is also affected by {risk.describe(target_vulns)}")
+    elif vulns:
+        u["reasons"].append(f"{target} fixes them")
+    native = native_16k(net, repo_url, unit["members"][0], target, cur) if check and kind != "bom" else None
+    bad_target = bool(native and native[0])
+    if native:
+        bad_t, bad_c = native
+        if bad_t:
+            u["flags"].append("16kb")
+            u["reasons"].append(f"16 KB page size: {target} ships native libraries that aren't 16 KB aligned "
+                                f"({lib_names(bad_t)})")
+        elif bad_c:
+            u["flags"].append("16kb")
+            u["fixes_16k"] = True
+            u["reasons"].append(f"16 KB page size: {cur} ships native libraries that aren't 16 KB aligned "
+                                f"({lib_names(bad_c)}), which Google Play requires for apps targeting "
+                                f"Android 15+; {target} is aligned")
+    if not ctx["offline"]:
+        u["notes_url"] = notes_url(net, repo_url, unit, target)
 
     gaps = []
     if not ctx["offline"]:
         if kind == "bom":
-            gaps, u["moves"] = bom_gaps(net, base, unit, target, ctx["children"], repo_url)
+            gaps, u["moves"] = bom_gaps(net, base, unit, target, ctx["children"], repo_url, cur)
+            if any(mv.endswith("(major)") for mv in u["moves"]):
+                u["reasons"].append("a library the BOM manages changes major version: read its release notes")
         else:
             gaps = library_gaps(net, base, unit["members"][0], target, repo_url)
         if repo_url:
@@ -789,18 +873,103 @@ def analyse(unit, ctx):
     elif level == "major" or multi or kind == "agp":
         # fits, but it's a big jump (or the toolchain): the smallest step is the cautious option
         u["alternative"] = cautious_step(versions, cur, target)
+    elif vulns and fix and vkey(fix) < vkey(target):
+        u["alternative"] = fix  # the smallest step that closes the advisories
+    if u["alternative"] and (vulns or (native and native[1])):
+        # an alternative must not keep what makes the current version a problem
+        alt = u["alternative"]
+        if (vulns and risk.vulnerabilities(net, lib_coords, alt)) or \
+                (native and native[1] and risk.misaligned_16k(aar_bytes(net, repo_url, unit["members"][0], alt))):
+            u["alternative"] = fix if vulns and fix and vkey(fix) < vkey(target) and vkey(fix) > vkey(alt) else None
+            checked = False  # a replacement hasn't been checked for gaps
+    if native and native[1] and not u["alternative"]:
+        u["alternative"], checked = aligned_step(net, repo_url, unit["members"][0], versions, cur, target), False
     if u["alternative"] == target:
         u["alternative"] = None
 
     if u["tier"] != "decision":
         risky = u["own_confirmation"] or kind == "ksp" or level == "major" or gaps or holds or multi or \
+            target_vulns or bad_target or hand or \
             (u["age_days"] is not None and u["age_days"] < ctx["cooldown"])
         u["tier"] = "care" if risky else "safe"
+    u["flags"] = sorted(set(u["flags"]))
     if kind not in ("agp", "kotlin", "ksp") and u["tier"] == "care" and gaps:
         u["reasons"].append("coupled to the compileSdk/AGP/Kotlin bump it needs")
     if u["tier"] == "care" and u["alternative"] and kind not in ("agp", "kotlin", "ksp") and not holds:
         u["sibling"] = safe_sibling(ctx, unit, u, repo_url, checked)
     return u
+
+
+def fix_version(versions, cur, vulns):
+    """The lowest stable version at or above the first fix of every advisory, or None."""
+    needed = []
+    for v in vulns:
+        later = sorted((f for f in v["fixed"] if vkey(f) > vkey(cur)), key=vkey)
+        if not later:
+            return None
+        needed.append(later[0])
+    floor = max(needed, key=vkey)
+    ok = [v for v in versions if is_stable(v) and vkey(v) >= vkey(floor)]
+    return min(ok, key=vkey) if ok else None
+
+
+def aar_bytes(net, repo_url, m, version):
+    if not repo_url or m["section"] != "libraries":
+        return None
+    req = aar_requirements(net, repo_url, m["group"], m["name"], version)
+    art = (req or {}).get("artifact", m["name"])
+    return net.get(artifact(repo_url, m["group"], art, version) + ".aar")
+
+
+def native_16k(net, repo_url, m, target, cur):
+    """(misaligned in target, misaligned in current), or None when the target ships no
+    64-bit native code. The current AAR is only downloaded when there is native code."""
+    bad_target = risk.misaligned_16k(aar_bytes(net, repo_url, m, target))
+    if bad_target is None:
+        return None
+    return bad_target, risk.misaligned_16k(aar_bytes(net, repo_url, m, cur)) or []
+
+
+def aligned_step(net, repo_url, m, versions, cur, target):
+    """The first minor line (its latest patch) below the target whose 64-bit native
+    libraries are 16 KB aligned: the smallest step that meets the Play requirement."""
+    by_minor = {}
+    for v in stable_between(versions, cur, target):  # newest first: keeps each minor's latest patch
+        by_minor.setdefault(tuple(nums(v)[:2]), v)
+    for line in sorted(by_minor)[:MAX_STEPDOWN_PROBES]:
+        v = by_minor[line]
+        if v == target:
+            break
+        if not risk.misaligned_16k(aar_bytes(net, repo_url, m, v)):
+            return v
+    return None
+
+
+def lib_names(paths, limit=3):
+    names = sorted({p.rsplit("/", 1)[-1] for p in paths})
+    return ", ".join(names[:limit]) + (f" and {len(names) - limit} more" if len(names) > limit else "")
+
+
+def notes_url(net, repo_url, unit, version):
+    """Release notes of the target: fixed pages for the toolchain and AndroidX, else the
+    project URL in the POM (for a plugin, the POM of the artifact its marker points to)."""
+    m, kind = unit["members"][0], unit["kind"]
+    if m["section"] == "libraries":
+        group, name = m["group"], m["name"]
+    else:
+        group, name = m["id"], None
+    known = risk.release_notes(kind, group, name)
+    if known or not repo_url:
+        return known
+    pom = net.get(artifact(repo_url, *_ga(m), version) + ".pom")
+    if m["section"] == "plugins":
+        impl = next(iter(pom_deps(net, repo_url, *_ga(m), version) or []), None)
+        pom = net.get(artifact(repo_url, impl.get("groupId"), impl.get("artifactId"), impl.get("version")) + ".pom") \
+            if impl and impl.get("groupId") and impl.get("version") else None
+    parent = risk.pom_parent(pom) if not risk.pom_url(pom) else None
+    if parent:  # e.g. gson declares its URL in gson-parent
+        pom = net.get(artifact(repo_url, *parent) + ".pom")
+    return risk.release_notes(kind, group, name, pom)
 
 
 def safe_sibling(ctx, unit, u, repo_url, checked):
@@ -820,10 +989,17 @@ def safe_sibling(ctx, unit, u, repo_url, checked):
     age = ctx["net"].age_days(artifact(repo_url, *_ga(unit["members"][0]), alt) + ".pom") if repo_url else None
     if age is not None and age < ctx["cooldown"]:
         return None
+    reasons, flags = [f"compatible step; the latest ({u['target']}) is under 'Handle with care'"], []
+    if u.get("vulns"):
+        reasons.append(f"closes {', '.join(u['vulns'])}")
+        flags.append("security")
+    if u.get("fixes_16k"):  # the alternative was checked to be aligned in analyse()
+        reasons.append("its native libraries are 16 KB aligned")
+        flags.append("16kb")
     return {"key": unit["key"], "kind": kind, "current": cur, "target": alt, "tier": "safe",
             "own_confirmation": False, "members_view": u["members_view"], "alternative": None,
-            "reasons": [f"compatible step; the latest ({u['target']}) is under 'Handle with care'"],
-            "moves": [], "age_days": age, "needs": []}
+            "reasons": reasons, "moves": [], "age_days": age, "needs": [], "flags": flags,
+            "notes_url": u.get("notes_url")}
 
 
 def _ga(m):
@@ -895,7 +1071,8 @@ def wrapper_item(repo, report, net, cooldown=COOLDOWN_DAYS):
         reasons.append(f"released {age} day(s) ago (cooldown {cooldown})")
     return {"key": "gradle-wrapper", "kind": "wrapper", "current": cur, "target": target, "tier": "care",
             "own_confirmation": True, "members_view": ["gradle/wrapper/gradle-wrapper.properties"],
-            "reasons": reasons, "alternative": None, "moves": [], "age_days": age, "needs": []}
+            "reasons": reasons, "alternative": None, "moves": [], "age_days": age, "needs": [], "flags": [],
+            "notes_url": f"https://docs.gradle.org/{target}/release-notes.html"}
 
 
 def agp_notes(net, agp, target, kotlin):
@@ -910,6 +1087,29 @@ def agp_notes(net, agp, target, kotlin):
     notes.append("check the minimum Gradle and Android Studio versions for AGP "
                  f"{target}: https://developer.android.com/build/releases/gradle-plugin")
     return notes
+
+
+def map_lint(findings, units, cat, catalog):
+    """Lint findings per unit key: by line when lint points at the catalog (it reports
+    on the entry), else by a group:name coordinate in the message."""
+    by_line, by_coord = {}, {}
+    for key, u in units.items():
+        if key in cat["versions"]:
+            by_line[cat["versions"][key]["line"]] = key
+        for m in u["members"]:
+            by_line[m["line"]] = key
+            if m["section"] == "libraries":
+                by_coord[m["coord"]] = key
+    mapped, rest = {}, []
+    for f in findings:
+        key = by_line.get(f["line"]) if f["file"].replace("\\", "/").endswith(catalog.name) else None
+        key = key or next((by_coord[c] for c in sorted(risk.lint_coords(f["message"])) if c in by_coord), None)
+        if key:
+            if f["message"] not in {x["message"] for x in mapped.get(key, [])}:
+                mapped.setdefault(key, []).append(f)
+        else:
+            rest.append(f)
+    return mapped, rest
 
 
 def requirement_items(items, base, sdk_sources, warnings):
@@ -951,6 +1151,9 @@ TIERS = (
 )
 
 
+FLAG_LABELS = {"security": "**security**", "16kb": "**16 KB**", "sdk-index": "**Play SDK Index**"}
+
+
 def to_markdown(plan):
     b = plan["baseline"]
     lines = [f"Baseline: AGP {b['agp'] or '?'}, compileSdk {b['compileSdk'] or '?'}, "
@@ -963,7 +1166,7 @@ def to_markdown(plan):
         lines += [f"### {title}", "", "| item | current → proposed | notes |", "|---|---|---|"]
         for i in items:
             arrow = f"{i['current']} → {i['target']}" if i.get("target") else (i["current"] or "?")
-            notes = list(i["reasons"])
+            notes = [FLAG_LABELS[f] for f in i.get("flags", [])] + list(i["reasons"])
             if i.get("own_confirmation"):
                 notes.insert(0, "**own confirmation**")
             if i.get("alternative") and tier != "safe" and (i["key"], i["alternative"]) in listed:
@@ -972,12 +1175,16 @@ def to_markdown(plan):
                 notes.append(f"cautious alternative: {i['alternative']}")
             if i.get("moves"):
                 notes.append("moves " + ", ".join(i["moves"]))
+            if i.get("notes_url"):
+                notes.append(f"[release notes]({i['notes_url']})")
             lines.append(f"| `{i['key']}` ({', '.join(i['members_view'])}) | {arrow} | {'; '.join(notes) or '—'} |")
         lines.append("")
     if plan["not_in_catalog"]:
         lines += ["### Outside the catalog (inline in build files or transitive)", ""]
         lines += [f"- {e['coordinate']}: {e['current']} → {e['latest']}" for e in plan["not_in_catalog"]]
         lines.append("")
+    if plan["before_applying"]:
+        lines += ["### Before applying", ""] + [f"- {n}" for n in plan["before_applying"]] + [""]
     if plan["warnings"]:
         lines += ["### Warnings", ""] + [f"- {w}" for w in plan["warnings"]]
     return "\n".join(lines)
@@ -1049,7 +1256,13 @@ def main(argv=None):
     if base["compileSdk"] is None:
         warnings.append("compileSdk not found: pass --compile-sdk to check AAR requirements")
 
-    ctx = {"net": net, "base": base, "report": report, "children": children, "refs": refs,
+    findings, lint_time = risk.lint_findings(repo)
+    lint, unmapped = map_lint(findings, units, cat, catalog)
+    if lint_time and catalog.stat().st_mtime > lint_time:
+        warnings.append("the lint report is older than the catalog: its Play SDK Index findings may be stale")
+    warnings += [f"lint {f['id']} outside the catalog: {f['message']} ({f['report']})" for f in unmapped]
+
+    ctx = {"net": net, "base": base, "report": report, "children": children, "refs": refs, "lint": lint,
            "cooldown": args.cooldown_days, "offline": args.offline}
     with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as pool:
         items = list(pool.map(lambda u: analyse(u, ctx), units.values()))
@@ -1071,8 +1284,11 @@ def main(argv=None):
     w = wrapper_item(repo, report, net, args.cooldown_days)
     if w:
         items.append(w)
+    for i in items:
+        i["flags"] = sorted(set(i.get("flags", [])))
     order = {"safe": 0, "care": 1, "decision": 2}
-    items.sort(key=lambda i: (order[i["tier"]], not i.get("own_confirmation"), i["key"]))
+    # within a tier: toolchain first, then security / Play findings, then by key
+    items.sort(key=lambda i: (order[i["tier"]], not i.get("own_confirmation"), not i["flags"], i["key"]))
 
     not_in_catalog = []
     if report:
@@ -1084,7 +1300,7 @@ def main(argv=None):
         warnings += [f"skipped configuration: {s}" for s in report.get("skipped", [])]
 
     for i in items:
-        for k in ("members", "comments", "rich", "sibling"):
+        for k in ("members", "comments", "rich", "sibling", "fixes_16k"):
             i.pop(k, None)
     plan = {
         "catalog": str(catalog), "source": source,
@@ -1092,6 +1308,7 @@ def main(argv=None):
         "items": items,
         "governed": children,
         "not_in_catalog": not_in_catalog,
+        "before_applying": risk.build_integrity(repo),
         "warnings": warnings,
     }
     if args.json:

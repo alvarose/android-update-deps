@@ -53,6 +53,20 @@ class OnlineTests(unittest.TestCase):
         core = [i for i in self.items if i["key"] == "coreKtx"]
         self.assertEqual({i["tier"] for i in core}, {"safe", "care"})
 
+    def test_security_and_16k(self):
+        # gson 2.8.8 has GHSA-4jrv-ppp4-jm57 (fixed in 2.8.9); camera-core 1.3.0 ships 4 KB-aligned .so files
+        gson = {i["tier"]: i for i in self.items if i["key"] == "gson"}
+        self.assertIn("GHSA-4jrv-ppp4-jm57", gson["care"]["vulns"])
+        self.assertEqual(gson["safe"]["target"], "2.8.9")
+        camera = {i["tier"]: i for i in self.items if i["key"] == "cameraX"}
+        self.assertIn("16kb", camera["care"]["flags"])
+        self.assertIn("16kb", camera["safe"]["flags"])
+
+    def test_release_notes_links(self):
+        for i in self.items:
+            if i["tier"] != "decision" and i["key"] not in ("compileSdk",):
+                self.assertTrue(i.get("notes_url"), i["key"])
+
 
 if __name__ == "__main__":
     unittest.main()

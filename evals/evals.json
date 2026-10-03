@@ -13,6 +13,8 @@
         "Flagged the latest androidx core-ktx and the latest Compose BOM as needing compileSdk 37 (project: 36) — coupled, not safe — and offered the highest compatible versions as alternatives, making clear which of the two rows 'the safe ones' would apply.",
         "Listed AGP and the Gradle wrapper as separate items that need their own explicit confirmation.",
         "Flagged the old-scheme KSP (2.2.10-2.0.2) as a prerequisite to migrate before any Kotlin bump.",
+        "Flagged gson 2.8.8's known vulnerability (GHSA-4jrv-ppp4-jm57 / CVE-2022-25647) near the top, and offered 2.8.9 (the smallest fixing step) as a safe alternative to the multi-minor jump.",
+        "Flagged camera-core 1.3.0's native libraries as not 16 KB aligned (a Google Play requirement) and proposed an aligned version.",
         "Noted that under AGP 9 built-in Kotlin the catalog's kotlin ref doesn't control the compiler (or kept Kotlin as an own-confirmation item blocked by KSP).",
         "Put the JitPack entry android-pdfview under 'needs a decision' (unused / version not published), not as a bump.",
         "Did not present AGP-internal tooling (com.android.tools.utp, lint-gradle) or Kotlin toolchain artifacts as catalog updates.",
@@ -28,6 +30,7 @@
       "assertions": [
         "Did not run the Gradle detection task; used scripts/plan.py --source metadata (or equivalent metadata lookups).",
         "Checked com.github.barteksc:AndroidPdfViewer against JitPack metadata and reported that the catalog version isn't a published stable release (needs a decision).",
+        "Reported the gson vulnerability and the camera-core 16 KB problem without running Gradle.",
         "Kept AGP, Kotlin and the Gradle wrapper out of the safe group.",
         "Reported the unused entries (android-pdfview; KSP only declared with apply false) as decisions, qualified as coming from a static scan of the build files rather than a report.",
         "Stopped at the gate: no tracked file changed.",
@@ -44,6 +47,7 @@
         "Flagged the latest core-ktx / Compose BOM as needing compileSdk 37 and offered compatible alternatives.",
         "Listed AGP and the Gradle wrapper as separate items needing their own confirmation.",
         "Flagged the old-scheme KSP as a prerequisite before any Kotlin bump.",
+        "Flagged the gson vulnerability and the camera-core 16 KB alignment problem.",
         "Stopped at the gate: no tracked file changed.",
         "User-facing response is in SPANISH, matching the prompt."
       ]

@@ -4,9 +4,36 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0] — 2026-10-03
+
+Risk and compliance: security and Google Play requirements become part of the proposal, and the
+repository gets CI and trigger evals.
 
 ### Added
+- **`scripts/risk.py`** (standard library only), used by the planner:
+  - **Known vulnerabilities** from [OSV](https://osv.dev) for the current and the proposed version of
+    every library. A vulnerable current version is flagged **security** with its advisories, severity,
+    CVEs and first fixed version. The smallest fixing step is offered, and an alternative that is
+    still affected is dropped. With no fixed release, the item becomes a decision.
+  - **16 KB page size**: reads the ELF `LOAD` alignment of the 64-bit native libraries
+    (`arm64-v8a`, `x86_64`) in the proposed and the current AAR. Google Play requires 16 KB support
+    for apps targeting Android 15+. When the current version isn't aligned, the first aligned minor
+    line is offered as the step.
+  - **Android lint findings** from `build/reports/lint-results*.xml`: Play SDK Index (policy,
+    vulnerability, deprecation, outdated) and `Aligned16KB`. They are mapped to catalog entries by
+    line, or by coordinate.
+  - **Release-notes link** per item: AndroidX and Compose BOM pages, the toolchain's pages, else the
+    project's GitHub releases or site from the POM (its parent POM if needed).
+  - **"Before applying"**: dependency-verification metadata and lockfiles to regenerate, and a
+    Renovate/Dependabot setup whose PRs may overlap.
+  - **Hand-offs** to Google's `agp-9-upgrade` (AGP 8 → 9) and `play-billing-library-version-upgrade`
+    skills.
+- BOM items say what each BOM-managed library the project uses moves from and to, and flag majors.
+- `SKILL.md`: optional lint run for Play SDK Index, security-first rule, report-only requests stop
+  at the gate, an R8 release build in Verify for reflection-heavy libraries, and the "Before
+  applying" steps in Apply. `references/reference.md`: manual OSV / 16 KB / SDK Index procedure.
+- The fixture now has a vulnerable `gson` 2.8.8 and a `camera-core` 1.3.0 with 4 KB-aligned
+  native libraries.
 - **Continuous integration** (`.github/workflows/ci.yml`) on pushes, PRs, tags and weekly:
   - tests on Python 3.8 and current Python, on Linux and Windows;
   - the Agent Skills spec (`skills-ref`), `claude plugin validate --strict` and
@@ -17,11 +44,17 @@ All notable changes to this skill are documented here. The format is based on
   this changelog (and the tag on tag builds). The planner runs offline on the fixture, and
   `aggregate-updates.py` runs on a synthetic report.
 - Dependabot for the workflow's actions.
-- **Trigger evals** (`evals/triggers/`, run with `claude plugin eval`): 9 requests that should load
-  the skill (English and Spanish, terse or indirect) and 10 near-misses that shouldn't (other
-  ecosystems, adding a new library, Groovy → Kotlin DSL, `targetSdk`, Renovate, a duplicate-class
-  error). First run, 3 runs per case: 57/57 as expected with the 1.4.0 description, so the
-  description is unchanged. A repository test checks that the cases are well formed.
+- **Trigger evals** (`evals/triggers/`, run with `claude plugin eval`): 11 requests that should
+  load the skill (English and Spanish, terse or indirect, vulnerabilities, Play's 16 KB warning) and
+  11 near-misses that shouldn't (other ecosystems, adding a new library, Groovy → Kotlin DSL,
+  `targetSdk`, Renovate, a duplicate-class error, 16 KB for the app's own NDK code). A repository
+  test checks that the cases are well formed.
+
+### Changed
+- The description mentions known vulnerabilities and Google Play's 16 KB / SDK Index requirements,
+  and triggers on "are my libraries vulnerable / 16 KB compatible". Trigger evals with this
+  description, 3 runs per case: 66/66 as expected (the 1.4.0 description had scored 57/57 on the
+  first 19 cases).
 
 ## [1.4.0] — 2026-10-03
 
