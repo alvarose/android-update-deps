@@ -4,7 +4,7 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [1.6.0] — 2026-10-03
+## [1.6.0] — 2026-10-04
 
 Reviewing the PRs that Dependabot or Renovate opened, with the same analysis as an update.
 
