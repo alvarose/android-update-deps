@@ -54,6 +54,25 @@ class VersionTests(unittest.TestCase):
         self.assertEqual(os.environ["GITHUB_REF_NAME"], "v" + self.versions()["plugin.json"])
 
 
+class TriggerSuiteTests(unittest.TestCase):
+    """evals/triggers/ is well formed (running it costs model calls; checking it doesn't)."""
+
+    def test_cases(self):
+        cases = sorted(p for p in (ROOT / "evals" / "triggers").iterdir() if p.is_dir())
+        kinds = {"should-trigger": 0, "should-not-trigger": 0}
+        for case in cases:
+            prompt = (case / "prompt.md").read_text(encoding="utf-8")
+            grader = (case / "graders" / "skill.md").read_text(encoding="utf-8")
+            kind = re.search(r"^tags: \[trigger, ([\w-]+)\]$", prompt, re.M).group(1)
+            kinds[kind] += 1
+            self.assertTrue(prompt.split("---", 2)[2].strip(), case.name)  # a prompt body
+            pattern = re.search(r"^input_match: '(.+)'$", grader, re.M).group(1)
+            self.assertRegex('{"skill": "android-update-deps:%s"}' % SKILL.name, pattern, case.name)
+            never = "max: 0" in grader
+            self.assertEqual(never, kind == "should-not-trigger", case.name)
+        self.assertGreaterEqual(min(kinds.values()), 8, kinds)
+
+
 class FixtureTests(unittest.TestCase):
     """The planner on evals/fixtures/android-catalog-fixture without network."""
 

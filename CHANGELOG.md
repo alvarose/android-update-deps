@@ -17,6 +17,11 @@ All notable changes to this skill are documented here. The format is based on
   this changelog (and the tag on tag builds). The planner runs offline on the fixture, and
   `aggregate-updates.py` runs on a synthetic report.
 - Dependabot for the workflow's actions.
+- **Trigger evals** (`evals/triggers/`, run with `claude plugin eval`): 9 requests that should load
+  the skill (English and Spanish, terse or indirect) and 10 near-misses that shouldn't (other
+  ecosystems, adding a new library, Groovy → Kotlin DSL, `targetSdk`, Renovate, a duplicate-class
+  error). First run, 3 runs per case: 57/57 as expected with the 1.4.0 description, so the
+  description is unchanged. A repository test checks that the cases are well formed.
 
 ## [1.4.0] — 2026-10-03
 

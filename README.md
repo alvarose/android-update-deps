@@ -191,7 +191,17 @@ python3 -m unittest discover -s tests -v
 ```
 
 `PLAN_ONLINE=1` adds the canary that runs the planner on the fixture against the live
-repositories. A release bumps the version in `plugin.json`, `marketplace.json`, `SKILL.md`
+repositories.
+
+When you change the skill's `description`, check that it still triggers when it should, and only
+then. [`evals/triggers/`](evals/triggers/) holds 19 realistic requests for
+[`claude plugin eval`](https://code.claude.com/docs/en/plugins/evals): 9 should load the skill;
+10 are near-misses that shouldn't (other ecosystems, adding a new library, `targetSdk`, Renovate,
+build errors). These are real model calls on your account:
+
+```bash
+claude plugin eval . --tag trigger --ablation none --threshold 0.6 --trust-plugin
+``` A release bumps the version in `plugin.json`, `marketplace.json`, `SKILL.md`
 and `CHANGELOG.md` together; CI checks that they match, and that a tag matches them.
 
 ## License

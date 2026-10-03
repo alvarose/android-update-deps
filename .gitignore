@@ -7,3 +7,6 @@ evals/fixtures/**/build/
 evals/fixtures/**/.gradle/
 evals/fixtures/**/.kotlin/
 evals/fixtures/**/local.properties
+
+# claude plugin eval output
+evals/results/
