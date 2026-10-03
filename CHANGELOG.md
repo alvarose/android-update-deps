@@ -4,6 +4,53 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] — 2026-10-03
+
+Reviewing the PRs that Dependabot or Renovate opened, with the same analysis as an update.
+
+### Added
+- **`scripts/review_prs.py`** (standard library + `gh`, read-only) and a "Reviewing Dependabot /
+  Renovate PRs" flow in `SKILL.md`. For each open bot PR it:
+  - reads the files the PR changes (catalog, Gradle wrapper, inline versions in build scripts) at
+    the merge base and at the head, so changes made on the base branch since don't show up;
+  - judges the version the PR proposes with the planner's checks: requirements, toolchain items,
+    vulnerabilities, 16 KB, unused entries, and a newer stable release;
+  - adds what only a PR has: the CI result (naming the failing checks), merge conflicts, drafts,
+    whether the author is a verified Dependabot/Renovate bot, and files that aren't dependency files;
+  - flags PRs moving the same entry (the lower one is superseded) and checks that fail on every
+    bot PR (probably broken on the base branch);
+  - gives a verdict: **merge candidate / review first / hold**.
+
+  It works on a local checkout or remotely with `-R owner/name` (build files through the GitHub
+  API, no clone). It never reads PR descriptions, and never merges, comments or closes: those
+  actions need an explicit yes, one at a time.
+- `references/reference.md`: Dependabot and Renovate commands to suggest (rebase, ignore, close)
+  and merge rules (repository merge method, never `--admin`).
+- Trigger evals: 2 requests to review bot PRs (English and Spanish), plus 2 near-misses (reviewing a
+  feature PR, writing a `dependabot.yml`). The description now mentions bot PRs, and with it all 26
+  cases score as expected (78/78 runs).
+- Validated against the open bot PRs of two public Android apps, read-only:
+  - element-x-android (Renovate, 10 PRs): it found PRs that touch code, a check failing on every
+    PR, and newer releases than the ones proposed;
+  - thunderbird-android (Dependabot, 5 PRs): 4 merge candidates, and a GitHub Actions-only PR
+    kept apart.
+
+### Changed
+- `plan.py` judges a given version when asked to (used by the PR review). It exposes
+  `project_baseline` and `cross_unit_rules`, and parses a catalog from text.
+- Unused-entry detection, from validation on element-x-android and thunderbird-android:
+  - finds the catalog behind a variable (`val catalog = the<LibrariesForLibs>()`);
+  - reads the convention plugins of any `includeBuild(...)` directory, not only `build-logic/` and
+    `buildSrc/`;
+  - with dynamic lookups (`findLibrary(name)`) it keeps what is referenced as used, instead of
+    turning the scan off.
+- `compileSdk` is found through qualified and camelCase constants (`Versions.COMPILE_SDK`,
+  `ThunderbirdProjectConfig.Android.sdkCompile`).
+- Vulnerabilities: advisories that record `last_affected` instead of a fix are handled, and the
+  wording no longer says nothing fixes an advisory that the proposed version doesn't have.
+- Release-notes links handle `scm:` and `git://` URLs. JitPack's 401 for private artifacts is no
+  longer a warning.
+
 ## [1.5.0] — 2026-10-03
 
 Risk and compliance: security and Google Play requirements become part of the proposal, and the

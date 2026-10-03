@@ -183,8 +183,24 @@ class CatalogTests(unittest.TestCase):
         refs = plan.scan_references({"a.gradle.kts": "implementation(libs.androidx.core.ktx.get())\n"}, self.cat)
         self.assertIn("androidx-core-ktx", refs["libraries"])
 
-    def test_dynamic_lookup_disables_the_scan(self):
-        self.assertIsNone(plan.scan_references({"Conv.kt": "libs.findLibrary(alias).get()"}, self.cat))
+    def test_dynamic_lookup_keeps_positive_evidence_only(self):
+        refs = plan.scan_references({"Conv.kt": "libs.findLibrary(alias).get()",
+                                     "app/build.gradle.kts": "implementation(libs.gson)"}, self.cat)
+        self.assertTrue(refs["dynamic"])
+        units = plan.build_units(self.cat)
+        self.assertEqual(plan.usage(units["libraries.gson"], refs), "used")
+        self.assertIsNone(plan.usage(units["retrofit"], refs))  # may be looked up dynamically
+
+    def test_catalog_through_a_variable_and_include_build(self):
+        texts = {"settings.gradle.kts": 'pluginManagement {\n    includeBuild("plugins")\n}\n',
+                 "plugins/src/main/kotlin/Versions.kt": "object Versions { const val COMPILE_SDK = 36 }",
+                 "build.gradle.kts": "private val catalog = the<LibrariesForLibs>()\n"
+                                     "dependencies { detektPlugins(catalog.gson) }\n"
+                                     "android { compileSdk = Versions.COMPILE_SDK }\n"}
+        self.assertIn("plugins", plan.convention_dirs(texts))
+        self.assertTrue(plan.is_convention_source("plugins/src/main/kotlin/Versions.kt", plan.convention_dirs(texts)))
+        self.assertIn("gson", plan.scan_references(texts, self.cat)["libraries"])
+        self.assertEqual(plan.detect_compile_sdk(texts, self.cat)[0], 36)
 
     def test_compile_sdk_from_constant_and_minor(self):
         texts = {"build-logic/Sdk.kt": "const val APP_COMPILE_SDK = 36\n",
@@ -340,7 +356,7 @@ class AnalyseTests(unittest.TestCase):
         self.assertEqual(u["vulns"], ["GHSA-test"])
         text = " ".join(u["reasons"])
         self.assertIn("affected by GHSA-test (HIGH; CVE-2022-0001); first fixed in 1.17.0", text)
-        self.assertIn("1.19.1 fixes them", text)
+        self.assertIn("1.19.1 isn't affected", text)
         self.assertEqual(u["sibling"]["target"], "1.18.0")
         self.assertIn("closes GHSA-test", u["sibling"]["reasons"])
         self.assertEqual(u["sibling"]["flags"], ["security"])

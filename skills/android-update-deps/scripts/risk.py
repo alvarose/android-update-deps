@@ -49,12 +49,14 @@ def osv(net, coord, version):
         return None
     out = []
     for v in data.get("vulns") or []:
-        fixed = sorted({e["fixed"] for a in v.get("affected") or []
-                        if (a.get("package") or {}).get("name") in (None, coord)
-                        for r in a.get("ranges") or [] for e in r.get("events") or [] if e.get("fixed")})
+        events = [e for a in v.get("affected") or [] if (a.get("package") or {}).get("name") in (None, coord)
+                  for r in a.get("ranges") or [] for e in r.get("events") or []]
         severity = (v.get("database_specific") or {}).get("severity")
         out.append({"id": v["id"], "cve": [a for a in v.get("aliases") or [] if a.startswith("CVE-")],
-                    "severity": severity, "summary": (v.get("summary") or "").strip(), "fixed": fixed})
+                    "severity": severity, "summary": (v.get("summary") or "").strip(),
+                    "fixed": sorted({e["fixed"] for e in events if e.get("fixed")}),
+                    # some advisories record the last affected release instead of the fix
+                    "last_affected": sorted({e["last_affected"] for e in events if e.get("last_affected")})})
     return out
 
 
@@ -209,7 +211,10 @@ def release_notes(kind, group, name, pom=None):
     url = pom_url(pom)
     if not url:
         return None
-    url = re.sub(r"^(scm:)?git:", "", url).replace("git@github.com:", "https://github.com/")
+    # SCM URLs: scm:git:git@github.com:o/r.git, scm:https://…, git://github.com/o/r.git
+    url = re.sub(r"^scm:", "", url)
+    url = re.sub(r"^git:(?!//)", "", url)
+    url = url.replace("git@github.com:", "https://github.com/").replace("git://", "https://")
     m = re.match(r"https?://github\.com/([^/\s]+)/([^/\s#?]+?)(?:\.git)?(?:[/#?].*)?$", url)
     return f"https://github.com/{m.group(1)}/{m.group(2)}/releases" if m else url
 

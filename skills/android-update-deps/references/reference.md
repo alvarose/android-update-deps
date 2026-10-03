@@ -81,6 +81,26 @@ an item). Check them before proposing (SKILL steps 3–4), instead of discoverin
    and `OutdatedLibrary` (blocking) on the catalog entry; the SDK's page on
    [play.google.com/sdks](https://play.google.com/sdks) has the details.
 
+## Dependency-bot PRs
+
+What `scripts/review_prs.py` reads, read-only, through `gh`:
+- `gh pr list --state open --json …`: author, files, CI rollup, mergeability;
+- the compare API, for the merge base;
+- the contents API, for the files at the merge base and at the PR head.
+
+Without a checkout (`-R owner/name`) it also reads the default branch's build files through the
+tree API. Use `gh pr diff N` to show a diff by hand.
+
+Actions you can **suggest**, each one only after the user's explicit yes:
+
+| Bot | Rebase | Stop proposing it | Other |
+|---|---|---|---|
+| Dependabot | comment `@dependabot rebase` (or `recreate` to discard edits) | `@dependabot ignore this major version` / `minor version` / `dependency` | `@dependabot close`, `@dependabot reopen` |
+| Renovate | tick the rebase checkbox in the PR body, or add the `rebase` label | close the PR (Renovate won't reopen that version), or add an `ignoreDeps` / `packageRules` entry to its config | edits to its branch stop its updates until rebased |
+
+Merging: `gh pr merge N` with the repository's method (`--squash`, `--merge` or `--rebase`, as its
+settings allow); never `--admin` to skip required checks.
+
 ## JitPack
 
 Manual procedure for `com.github.*` libs (the gradle-versions-plugin does not track them):

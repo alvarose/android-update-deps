@@ -87,6 +87,11 @@ class ReleaseNotesTests(unittest.TestCase):
             <scm><url>scm:git:git@github.com:square/okhttp.git</url></scm></project>"""
         self.assertEqual(risk.release_notes("library", "com.squareup.okhttp3", "okhttp", pom),
                          "https://github.com/square/okhttp/releases")
+        for scm in ("scm:https://github.com/mockito/mockito-kotlin.git", "git://github.com/mockito/mockito-kotlin.git",
+                    "scm:git:https://github.com/mockito/mockito-kotlin"):
+            pom = f"<project><scm><url>{scm}</url></scm></project>".encode()
+            self.assertEqual(risk.release_notes("library", "org.mockito.kotlin", "mockito-kotlin", pom),
+                             "https://github.com/mockito/mockito-kotlin/releases", scm)
         site = b"<project><url>https://example.org/lib</url></project>"
         self.assertEqual(risk.release_notes("library", "org.example", "lib", site), "https://example.org/lib")
         self.assertIsNone(risk.release_notes("library", "org.example", "lib", None))

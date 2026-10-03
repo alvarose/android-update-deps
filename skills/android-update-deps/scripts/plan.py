@@ -182,9 +182,13 @@ def version_of(spec):
 
 
 def parse_catalog(path):
+    return parse_catalog_text(path.read_text(encoding="utf-8"))
+
+
+def parse_catalog_text(text):
     cat = {"versions": {}, "libraries": {}, "plugins": {}, "bundles": {}}
     section, pending, bundles = None, [], []
-    for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for n, raw in enumerate(text.splitlines(), 1):
         code, comment = strip_comment(raw)
         if not code.strip():
             pending = pending + [comment] if comment is not None else []
@@ -254,22 +258,47 @@ SDK_PATTERNS = (
 )
 
 
-CONST = re.compile(r"\bval\s+([A-Z][A-Z0-9_]*)\s*(?::\s*Int)?\s*=\s*(\d+)\b")
-SDK_BY_NAME = re.compile(r"compileSdk(?:Version)?\s*=\s*([A-Z][A-Z0-9_]*)\b")
+# Kotlin constants in convention plugins: `const val COMPILE_SDK = 36`, `const val sdkCompile = 37`.
+CONST = re.compile(r"\bval\s+([A-Za-z_]\w*)\s*(?::\s*Int)?\s*=\s*(\d+)\b")
+SDK_BY_NAME = re.compile(r"compileSdk(?:Version)?\s*=\s*(?:[A-Za-z_]\w*\.)*([A-Za-z_]\w*)\b(?!\s*\()")
 SDK_MINOR = re.compile(r"(?:minorApiLevel|compileSdkMinor)\s*=\s*(\d+)")
 SKIP_DIRS = {"build", ".gradle", ".git", ".idea", ".kotlin", "node_modules"}
 
 
+INCLUDE_BUILD = re.compile(r"\bincludeBuild\s*\(?\s*[\"']([^\"']+)[\"']")
+
+
+def convention_dirs(gradle_texts):
+    """Where convention plugins live: build-logic/, buildSrc/ and every includeBuild()
+    that a settings script names (e.g. element-x's plugins/)."""
+    dirs = {"build-logic", "buildSrc"}
+    for path, text in gradle_texts.items():
+        if path.rsplit("/", 1)[-1].startswith("settings.gradle"):
+            for line in text.splitlines():
+                m = INCLUDE_BUILD.search(line)
+                if m and not line.lstrip().startswith("//"):
+                    dirs.add(m.group(1).strip("./").rstrip("/"))
+    return dirs
+
+
+def is_convention_source(path, dirs):
+    return any(path == d or path.startswith(d + "/") for d in dirs) or bool({"build-logic", "buildSrc"} & set(path.split("/")))
+
+
 def build_texts(repo):
-    """Gradle scripts, plus the Kotlin sources of convention plugins (`build-logic/`, `buildSrc/`)."""
-    files = []
-    for pattern in ("**/*.gradle.kts", "**/*.gradle", "**/*.kt"):
-        for f in repo.glob(pattern):
-            parts = set(f.relative_to(repo).parts)
-            if SKIP_DIRS & parts or (f.suffix == ".kt" and not {"build-logic", "buildSrc"} & parts):
-                continue
-            files.append(f)
-    return {f.relative_to(repo).as_posix(): f.read_text(encoding="utf-8", errors="replace") for f in files}
+    """Gradle scripts, plus the Kotlin sources of convention plugins."""
+    def keep(f):
+        return not SKIP_DIRS & set(f.relative_to(repo).parts)
+
+    read = lambda f: f.read_text(encoding="utf-8", errors="replace")  # noqa: E731
+    texts = {f.relative_to(repo).as_posix(): read(f)
+             for pattern in ("**/*.gradle.kts", "**/*.gradle") for f in repo.glob(pattern) if keep(f)}
+    dirs = convention_dirs(texts)
+    for f in repo.glob("**/*.kt"):
+        rel = f.relative_to(repo).as_posix()
+        if keep(f) and is_convention_source(rel, dirs):
+            texts[rel] = read(f)
+    return texts
 
 
 def detect_compile_sdk(texts, cat):
@@ -297,6 +326,7 @@ def detect_compile_sdk(texts, cat):
 ACCESSOR_END = r"(?:\.get\(\)|\.asProvider\(\)|(?![\w.]))"
 APPLY_FALSE = re.compile(r"\bapply\s*\(?\s*false\b")
 FIND_LITERAL = re.compile(r"\bfind(Library|Plugin|Bundle)\(\s*[\"']([^\"']+)[\"']")
+CATALOG_VAR = re.compile(r"\b(?:val|var)\s+(\w+)\s*(?::\s*LibrariesFor\w+\s*)?=[^\n]*\bLibrariesFor\w+")
 FIND_DYNAMIC = re.compile(r"\bfind(?:Library|Plugin|Bundle)\(\s*[^\s\"')]")
 
 
@@ -307,13 +337,15 @@ def accessor(alias):
 def scan_references(texts, cat, name="libs"):
     """Which catalog entries the build files reference: library aliases (directly or
     through a bundle), plugins applied by some module, and plugins only declared with
-    `apply false`. None when the build looks entries up dynamically (findLibrary(variable)),
-    because then a missing reference proves nothing."""
-    if any(FIND_DYNAMIC.search(t) for t in texts.values()):
-        return None
-    libs = {a: re.compile(rf"\b{name}\.{re.escape(accessor(a))}{ACCESSOR_END}") for a in cat["libraries"]}
-    bundles = {a: re.compile(rf"\b{name}\.bundles\.{re.escape(accessor(a))}{ACCESSOR_END}") for a in cat["bundles"]}
-    plugins = {a: re.compile(rf"\b{name}\.plugins\.{re.escape(accessor(a))}{ACCESSOR_END}|[\"']{re.escape(e['id'])}[\"']")
+    `apply false`. When the build also looks entries up dynamically (findLibrary(variable)),
+    `dynamic` is set: what is referenced is still used, but a missing reference proves nothing."""
+    dynamic = any(FIND_DYNAMIC.search(t) for t in texts.values())
+    # the catalog can also be reached through a variable: `val catalog = the<LibrariesForLibs>()`
+    names = {name} | {v for t in texts.values() for v in CATALOG_VAR.findall(t)}
+    prefix = "(?:" + "|".join(sorted(re.escape(n) for n in names)) + ")"
+    libs = {a: re.compile(rf"\b{prefix}\.{re.escape(accessor(a))}{ACCESSOR_END}") for a in cat["libraries"]}
+    bundles = {a: re.compile(rf"\b{prefix}\.bundles\.{re.escape(accessor(a))}{ACCESSOR_END}") for a in cat["bundles"]}
+    plugins = {a: re.compile(rf"\b{prefix}\.plugins\.{re.escape(accessor(a))}{ACCESSOR_END}|[\"']{re.escape(e['id'])}[\"']")
                for a, e in cat["plugins"].items()}
     used, applied, declared = set(), set(), set()
 
@@ -322,7 +354,7 @@ def scan_references(texts, cat, name="libs"):
 
     for text in texts.values():
         for line in text.splitlines():
-            if line.lstrip().startswith("//") or (name not in line and "\"" not in line and "'" not in line):
+            if line.lstrip().startswith("//") or ("." not in line and "\"" not in line and "'" not in line):
                 continue
             used.update(a for a, rx in libs.items() if rx.search(line))
             for a, rx in bundles.items():
@@ -337,7 +369,7 @@ def scan_references(texts, cat, name="libs"):
                 for a in pool:
                     if accessor(a) == norm:
                         {"Library": used.add, "Plugin": applied.add, "Bundle": use_bundle}[kind](a)
-    return {"libraries": used, "applied": applied, "declared": declared - applied}
+    return {"libraries": used, "applied": applied, "declared": declared - applied, "dynamic": dynamic}
 
 
 def usage(unit, refs):
@@ -347,6 +379,8 @@ def usage(unit, refs):
     members = unit["members"]
     if any(m["alias"] in (refs["libraries"] if m["section"] == "libraries" else refs["applied"]) for m in members):
         return "used"
+    if refs.get("dynamic"):
+        return None  # a dynamic lookup may apply it
     if any(m["section"] == "plugins" and m["alias"] in refs["declared"] for m in members):
         return "declared"
     return "unused"
@@ -382,7 +416,7 @@ class Net:
             with self._open(url) as r:
                 data = r.read()
         except urllib.error.HTTPError as e:
-            if e.code not in (403, 404):
+            if e.code not in (401, 403, 404):  # absent, or private (JitPack answers 401)
                 warn(f"{url}: HTTP {e.code}")
         except (urllib.error.URLError, OSError) as e:
             warn(f"{url}: {e}")
@@ -770,6 +804,21 @@ def analyse(unit, ctx):
         target = newer[0] if newer else None
     if target and vkey(target) <= vkey(cur):
         target = None
+    forced = ctx.get("force", {}).get(unit["key"])
+    if forced:
+        # reviewing a proposed bump (a bot PR): judge that version, and say if a newer one exists
+        if target and vkey(target) > vkey(forced):
+            u["latest"] = target
+            u["reasons"].append(f"newer stable available: {target}")
+        if versions and forced not in versions:
+            u["reasons"].append(f"{forced} is not published for every member of the block")
+            u["tier"] = "decision"
+        if not is_stable(forced):
+            u["reasons"].append(f"{forced} is a pre-release")
+        if vkey(forced) <= vkey(cur):
+            u["reasons"].append(f"{forced} is not newer than {cur}: a downgrade")
+            u["tier"] = "decision"
+        target = forced
 
     if versions and cur not in versions:
         u["reasons"].append(f"current version {cur} is not published in its repository")
@@ -788,8 +837,9 @@ def analyse(unit, ctx):
     if vulns:
         u["flags"].append("security")
         u["vulns"] = [v["id"] for v in vulns]
-        u["reasons"].append(f"security: {cur} is affected by {risk.describe(vulns)}; "
-                            + (f"first fixed in {fix}" if fix else "no stable release fixes all of them"))
+        u["reasons"].append(f"security: {cur} is affected by {risk.describe(vulns)}"
+                            + (f"; first fixed in {fix}" if fix else
+                               "" if target else "; no stable release fixes all of them"))
     findings = [] if unused else ctx.get("lint", {}).get(unit["key"], [])
     for f in findings:
         u["flags"].append("16kb" if f["id"] == "Aligned16KB" else "sdk-index")
@@ -833,7 +883,7 @@ def analyse(unit, ctx):
         u["flags"].append("security")
         u["reasons"].append(f"security: {target} is also affected by {risk.describe(target_vulns)}")
     elif vulns:
-        u["reasons"].append(f"{target} fixes them")
+        u["reasons"].append(f"{target} isn't affected")
     native = native_16k(net, repo_url, unit["members"][0], target, cur) if check and kind != "bom" else None
     bad_target = bool(native and native[0])
     if native:
@@ -889,7 +939,7 @@ def analyse(unit, ctx):
 
     if u["tier"] != "decision":
         risky = u["own_confirmation"] or kind == "ksp" or level == "major" or gaps or holds or multi or \
-            target_vulns or bad_target or hand or \
+            target_vulns or bad_target or hand or not is_stable(target) or \
             (u["age_days"] is not None and u["age_days"] < ctx["cooldown"])
         u["tier"] = "care" if risky else "safe"
     u["flags"] = sorted(set(u["flags"]))
@@ -902,14 +952,17 @@ def analyse(unit, ctx):
 
 def fix_version(versions, cur, vulns):
     """The lowest stable version at or above the first fix of every advisory, or None."""
-    needed = []
+    needed, above = [], []
     for v in vulns:
         later = sorted((f for f in v["fixed"] if vkey(f) > vkey(cur)), key=vkey)
-        if not later:
+        if later:
+            needed.append(later[0])
+        elif v.get("last_affected"):
+            above.append(max(v["last_affected"], key=vkey))  # any release after it
+        else:
             return None
-        needed.append(later[0])
-    floor = max(needed, key=vkey)
-    ok = [v for v in versions if is_stable(v) and vkey(v) >= vkey(floor)]
+    ok = [v for v in versions if is_stable(v)
+          and all(vkey(v) >= vkey(f) for f in needed) and all(vkey(v) > vkey(a) for a in above)]
     return min(ok, key=vkey) if ok else None
 
 
@@ -1089,6 +1142,50 @@ def agp_notes(net, agp, target, kotlin):
     return notes
 
 
+def project_baseline(texts, cat, units, refs, net, kotlin_arg=None, compile_sdk_arg=None, offline=False,
+                     warnings=None):
+    """(base, compileSdk sources, Kotlin source): the compileSdk, AGP and effective
+    Kotlin that requirements are checked against."""
+    warnings = [] if warnings is None else warnings
+    sdk, sdk_minor, sdk_sources = detect_compile_sdk(texts, cat)
+    agp = next((u["current"] for u in units.values() if u["kind"] == "agp"), None)
+    kotlin_unit = next((u for u in units.values() if u["kind"] == "kotlin"), None)
+    kotlin, kotlin_source = (kotlin_unit or {}).get("current"), "catalog"
+    if kotlin_arg:
+        kotlin, kotlin_source = kotlin_arg, "--kotlin"
+    elif agp and nums(agp)[0] >= 9:
+        # built-in Kotlin: AGP's own KGP, unless the build applies or puts a newer one on the classpath
+        bundled = None if offline else bundled_kgp(net, agp)
+        if bundled:
+            kotlin, kotlin_source = bundled, f"bundled with AGP {agp}"
+            if kotlin_unit and usage(kotlin_unit, refs) == "used" and vkey(kotlin_unit["current"]) > vkey(bundled):
+                kotlin, kotlin_source = kotlin_unit["current"], "catalog (applied, above AGP's bundled KGP)"
+        warnings.append(f"AGP 9 built-in Kotlin: effective Kotlin {'inferred' if bundled else 'unknown (catalog used)'}; "
+                        "confirm it with ./gradlew buildEnvironment (the org.jetbrains.kotlin:kotlin-gradle-plugin "
+                        "line) and pass --kotlin")
+    base = {"compileSdk": compile_sdk_arg or sdk, "compileSdkMinor": sdk_minor, "agp": agp, "kotlin": kotlin}
+    if base["compileSdk"] is None:
+        warnings.append("compileSdk not found: pass --compile-sdk to check AAR requirements")
+    return base, sdk_sources, kotlin_source
+
+
+def cross_unit_rules(items, units, base, net, offline=False):
+    """Rules between items: Kotlin waits for an old-scheme KSP; how Kotlin moves on
+    AGP 9; what an AGP bump drags along."""
+    agp, kotlin = base["agp"], base["kotlin"]
+    agp9 = bool(agp) and nums(agp)[0] >= 9
+    old_ksp = any(OLD_KSP.match(u["current"] or "") for u in units.values() if u["kind"] == "ksp")
+    for i in items:
+        if i["kind"] == "kotlin" and i.get("target"):
+            if old_ksp:
+                i["reasons"].append("blocked until KSP leaves the old <kotlin>-<ksp> scheme")
+            if agp9:
+                i["reasons"].append("AGP 9 built-in Kotlin: move it on the top-level buildscript classpath "
+                                    "(references/reference.md, Kotlin row)")
+        if i["kind"] == "agp" and i.get("target") and i["tier"] != "safe" and not offline:
+            i["reasons"] += agp_notes(net, agp, i["target"], kotlin)
+
+
 def map_lint(findings, units, cat, catalog):
     """Lint findings per unit key: by line when lint points at the catalog (it reports
     on the entry), else by a group:name coordinate in the message."""
@@ -1229,32 +1326,15 @@ def main(argv=None):
 
     texts = build_texts(repo)
     refs = scan_references(texts, cat, catalog.name.split(".versions.toml")[0] or "libs")
-    if refs is None:
+    if refs["dynamic"]:
         warnings.append("the build looks catalog entries up dynamically (findLibrary(variable)): unused "
                         "entries are only detected from a fresh report")
     elif source == "metadata" or report["stale"]:
         warnings.append("unused entries come from a static scan of the build files (no fresh report): "
                         "confirm before removing any")
-    sdk, sdk_minor, sdk_sources = detect_compile_sdk(texts, cat)
-    agp = next((u["current"] for u in units.values() if u["kind"] == "agp"), None)
-    agp9 = bool(agp) and nums(agp)[0] >= 9
-    kotlin_unit = next((u for u in units.values() if u["kind"] == "kotlin"), None)
-    kotlin, kotlin_source = (kotlin_unit or {}).get("current"), "catalog"
-    if args.kotlin:
-        kotlin, kotlin_source = args.kotlin, "--kotlin"
-    elif agp9:
-        # built-in Kotlin: AGP's own KGP, unless the build applies or puts a newer one on the classpath
-        bundled = None if args.offline else bundled_kgp(net, agp)
-        if bundled:
-            kotlin, kotlin_source = bundled, f"bundled with AGP {agp}"
-            if kotlin_unit and usage(kotlin_unit, refs) == "used" and vkey(kotlin_unit["current"]) > vkey(bundled):
-                kotlin, kotlin_source = kotlin_unit["current"], "catalog (applied, above AGP's bundled KGP)"
-        warnings.append(f"AGP 9 built-in Kotlin: effective Kotlin {'inferred' if bundled else 'unknown (catalog used)'}; "
-                        "confirm it with ./gradlew buildEnvironment (the org.jetbrains.kotlin:kotlin-gradle-plugin "
-                        "line) and pass --kotlin")
-    base = {"compileSdk": args.compile_sdk or sdk, "compileSdkMinor": sdk_minor, "agp": agp, "kotlin": kotlin}
-    if base["compileSdk"] is None:
-        warnings.append("compileSdk not found: pass --compile-sdk to check AAR requirements")
+    base, sdk_sources, kotlin_source = project_baseline(texts, cat, units, refs, net, args.kotlin,
+                                                        args.compile_sdk, args.offline, warnings)
+    agp, kotlin = base["agp"], base["kotlin"]
 
     findings, lint_time = risk.lint_findings(repo)
     lint, unmapped = map_lint(findings, units, cat, catalog)
@@ -1269,17 +1349,7 @@ def main(argv=None):
     items = [i for i in items if i["tier"] != "current"]
     items += [i["sibling"] for i in items if i.get("sibling")]
 
-    # cross-unit rules: Kotlin waits for an old-scheme KSP; how Kotlin moves on AGP 9
-    old_ksp = any(OLD_KSP.match(u["current"] or "") for u in units.values() if u["kind"] == "ksp")
-    for i in items:
-        if i["kind"] == "kotlin" and i.get("target"):
-            if old_ksp:
-                i["reasons"].append("blocked until KSP leaves the old <kotlin>-<ksp> scheme")
-            if agp9:
-                i["reasons"].append("AGP 9 built-in Kotlin: move it on the top-level buildscript classpath "
-                                    "(references/reference.md, Kotlin row)")
-        if i["kind"] == "agp" and i.get("target") and i["tier"] != "safe":
-            i["reasons"] += agp_notes(net, agp, i["target"], kotlin) if not args.offline else []
+    cross_unit_rules(items, units, base, net, args.offline)
     items += requirement_items(items, base, sdk_sources, warnings)
     w = wrapper_item(repo, report, net, args.cooldown_days)
     if w:
