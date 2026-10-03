@@ -4,6 +4,20 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Continuous integration** (`.github/workflows/ci.yml`) on pushes, PRs, tags and weekly:
+  - tests on Python 3.8 and current Python, on Linux and Windows;
+  - the Agent Skills spec (`skills-ref`), `claude plugin validate --strict` and
+    `gh skill publish --dry-run`;
+  - a canary that runs the planner on the fixture against the live repositories and checks the
+    policy invariants (toolchain never "safe", "safe" items have no unmet requirements).
+- Repository tests: the version matches across `plugin.json`, `marketplace.json`, `SKILL.md` and
+  this changelog (and the tag on tag builds). The planner runs offline on the fixture, and
+  `aggregate-updates.py` runs on a synthetic report.
+- Dependabot for the workflow's actions.
+
 ## [1.4.0] — 2026-10-03
 
 Deterministic planning engine: the mechanical part of the review moves from prose into a script.

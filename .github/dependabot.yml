@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Only the workflow actions. The Gradle fixture in evals/fixtures/ is outdated on
+  # purpose (it is what the evals review), so no gradle ecosystem here.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

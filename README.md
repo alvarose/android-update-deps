@@ -5,6 +5,7 @@
 > skill folder that works with Claude Code, OpenAI Codex, Antigravity, Gemini CLI, Android Studio
 > and any Agent-Skills-compatible tool.
 
+[![CI](https://github.com/alvarose/android-update-deps/actions/workflows/ci.yml/badge.svg)](https://github.com/alvarose/android-update-deps/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Agent Skill](https://img.shields.io/badge/Agent-Skill-6E56CF)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Kotlin%20%7C%20Gradle-3DDC84)
@@ -169,9 +170,10 @@ android-update-deps/
 │           ├── aggregate-updates.py        # raw view of the ben-manes report
 │           └── versions.init.gradle.kts    # inject ben-manes without editing the build
 ├── .claude-plugin/                 # Claude Code plugin + marketplace manifests
+├── .github/workflows/ci.yml        # tests, manifest validators, weekly live-repository canary
 ├── evals/                          # evaluation prompts + assertions
 │   └── fixtures/android-catalog-fixture/   # an outdated AGP 9 app to test against
-├── tests/                          # offline unit tests (python3 -m unittest discover -s tests)
+├── tests/                          # unit, repository and fixture tests (see Contributing)
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md
@@ -181,6 +183,16 @@ android-update-deps/
 
 Issues and PRs welcome. The skill is intentionally **concise** and **gated** — proposals that add
 scope should preserve those principles (see the "handle with care" philosophy in `SKILL.md`).
+
+Before a PR, run the tests (standard library only, no network):
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+`PLAN_ONLINE=1` adds the canary that runs the planner on the fixture against the live
+repositories. A release bumps the version in `plugin.json`, `marketplace.json`, `SKILL.md`
+and `CHANGELOG.md` together; CI checks that they match, and that a tag matches them.
 
 ## License
 
