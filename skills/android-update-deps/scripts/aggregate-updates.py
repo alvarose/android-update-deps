@@ -175,7 +175,7 @@ def print_text(result, reports):
         for s in result["skipped"]:
             print(f"  {s}")
     print("\nNext: map plugins/libraries to their keys in gradle/libs.versions.toml,")
-    print("group coupled blocks and BOM-governed artifacts, then propose (SKILL step 5).")
+    print("group coupled blocks and BOM-governed artifacts - or let scripts/plan.py do it (SKILL step 2).")
 
 
 def main(argv=None):
@@ -184,6 +184,9 @@ def main(argv=None):
     parser.add_argument("repo", nargs="?", default=".", help="Android project root (default: .)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles default to a legacy code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
     root = Path(args.repo).resolve()
     reports = find_reports(root)

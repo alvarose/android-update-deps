@@ -30,7 +30,8 @@ projects (adjust to what actually exists):
 
 ## Hidden requirements
 
-Check them before proposing (SKILL step 4), instead of discovering them when the build fails.
+`scripts/plan.py` does this automatically; this is the manual procedure (no Python, or to double-check
+an item). Check them before proposing (SKILL steps 3–4), instead of discovering them when the build fails.
 
 1. **Find the artifact.** Google artifacts (`androidx.*`, `com.google.android.*`,
    `com.android.*`) live in Google's Maven repo, the rest usually in Maven Central:
@@ -72,7 +73,7 @@ Manual procedure for `com.github.*` libs (the gradle-versions-plugin does not tr
    version isn't in `<versions>`, or is newer than the latest stable, it's a "needs a decision" item
    (SKILL step 3), not a bump.
 3. Compare it with the catalog version. If there's a jump, **treat it as one more item** in the
-   proposal (SKILL step 5), classified by risk (step 4), ignoring junk "versions" (hashes,
+   proposal (SKILL step 4), classified by risk (step 3), ignoring junk "versions" (hashes,
    `*-SNAPSHOT`, `master`, loose numeric tags).
 4. The report's "linked changelog" doesn't exist for these libs: use the GitHub releases
    (`gh api repos/<owner>/<repo>/releases`) and, if you need to confirm API signatures, the source
@@ -106,7 +107,7 @@ results go to `partials/`); older versions write one `report.json` per project. 
 
 - `outdated` → candidates. The accepted newer version is in `release`, `milestone` or `integration`
   depending on the task's `revision` (`milestone` by default). Ignore `preRelease`. `patch` and
-  `minor` (0.63+) are the latest patch / minor versions: step-down candidates (SKILL step 7).
+  `minor` (0.63+) are the latest patch / minor versions: step-down candidates (SKILL step 6).
 - `unresolved` → JitPack libs land here; review them with the procedure above.
 - `gradle` → the Gradle wrapper, **not** in `outdated`. Present when the task checks Gradle
   (`gradleReleaseChannel`, or `rejectPreReleases = true` as in the bundled init script).

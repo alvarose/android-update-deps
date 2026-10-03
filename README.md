@@ -31,7 +31,7 @@ Gradle Plugin (including AGP 9 built-in Kotlin), Compose/Firebase BOMs, coupled 
 - **Doesn't touch your build to look.** If the project doesn't use the ben-manes plugin, the skill
   injects it with a Gradle init script instead of editing `build.gradle.kts`.
 - **Covers the tool's blind spot.** The ben-manes `gradle-versions-plugin` can't see JitPack
-  (`com.github.*`) libraries — the skill checks those **by hand**.
+  (`com.github.*`) libraries — the skill checks those against JitPack's own metadata.
 - **Verifies before it trusts.** Applied bumps are built with `:app:assembleDebug`; if something
   breaks, it steps down to the highest version that compiles or reverts it — never leaving your tree
   broken.
@@ -44,8 +44,9 @@ Gradle Plugin (including AGP 9 built-in Kotlin), Compose/Firebase BOMs, coupled 
 | Concern | Behavior |
 |---|---|
 | **Version catalog** | Edits `gradle/libs.versions.toml` `version.ref`s — the single source of truth |
-| **Detection** | ben-manes `dependencyUpdates` (the project's own, or injected with an init script), aggregated by a helper script |
-| **JitPack** (`com.github.*`) | Checked manually via JitPack metadata / GitHub releases (plugin blind spot) |
+| **Detection** | ben-manes `dependencyUpdates` (the project's own, or injected with an init script), or straight from Maven metadata when Gradle can't run |
+| **Planning** | `scripts/plan.py` drafts the proposal deterministically: coupled blocks, toolchain items, hidden requirements, version existence, release-age cooldown, hold comments, unused entries, cautious alternatives |
+| **JitPack** (`com.github.*`) | Checked against JitPack metadata, used or not (the plugin's blind spot) |
 | **BOMs** (Compose, Firebase, …) | Bumps only the BOM; ignores the governed child artifacts in the report |
 | **Coupled blocks** | Kotlin ↔ Compose Compiler, KSP (old vs. 2.3+ scheme), AGP ↔ Gradle wrapper, Retrofit, OkHttp, Room, Hilt… treated as single items |
 | **Risk** | Semver magnitude + hidden `compileSdk`/AGP/Kotlin requirements (read from AAR metadata) + known vulnerabilities + license changes |
@@ -54,17 +55,17 @@ Gradle Plugin (including AGP 9 built-in Kotlin), Compose/Firebase BOMs, coupled 
 
 ## How it works
 
-A fixed, repeatable procedure (the skill stops at step 5 for your approval):
+A fixed, repeatable procedure (the skill stops at step 4 for your approval):
 
-1. **Discover** the project shape — catalog, detection path, JitPack libs, coupled blocks, SDK/JDK/wrapper, effective Kotlin/KSP.
-2. **Detect** updates with the ben-manes plugin (+ a manual JitPack pass).
-3. **Aggregate & dedupe** the report (helper script included).
-4. **Filter noise** — drop BOM-governed children and AGP/Kotlin tooling; group coupled blocks.
-5. **Classify by risk** and **propose** a table (safe vs. handle-with-care) — **⛔ GATE: waits for you.**
-6. **Apply** only what you confirmed.
-7. **Verify** with a build; step down or revert any culprit.
-8. **Commit** locally on a branch, one thematic `chore(deps)` commit, no push.
-9. **Adapt the code** to new APIs if needed — separate `refactor(deps)` commit.
+0. **Discover** the project shape — catalog, detection path, effective Kotlin/KSP, conventions.
+1. **Detect** updates with the ben-manes plugin.
+2. **Plan**: `scripts/plan.py` drafts a tiered proposal; the agent reads release notes and checks it.
+3. **Apply the rules** — safe vs. handle-with-care vs. needs-a-decision, toolchain always separate.
+4. **Propose** the table — **⛔ GATE: waits for you.**
+5. **Apply** only what you confirmed.
+6. **Verify** with a build; step down or revert any culprit.
+7. **Commit** locally on a branch, one thematic `chore(deps)` commit, no push.
+8. **Adapt the code** to new APIs if needed — separate `refactor(deps)` commit.
 
 ## Installation
 
@@ -148,9 +149,10 @@ So you can review it before installing:
   `scripts/versions.init.gradle.kts`, which pulls the ben-manes plugin from the Gradle Plugin Portal),
   `buildEnvironment`, `:app:assembleDebug`, tests/lint, and the wrapper task when you approve a
   Gradle upgrade.
-- **Python scripts** (standard library only) that read the plugin's reports.
-- **Network reads** of Maven metadata and artifacts (Google Maven, Maven Central, Gradle Plugin
-  Portal, JitPack) and of changelogs / GitHub releases.
+- **Python scripts** (standard library only) that read the catalog and the plugin's reports
+  (`plan.py`, `aggregate-updates.py`). They never edit your project.
+- **Network reads** of Maven metadata, POMs and AARs (Google Maven, Maven Central, Gradle Plugin
+  Portal, JitPack), of `services.gradle.org` (latest Gradle), and of changelogs / GitHub releases.
 - **git**: creates a branch and local commits. It never pushes unless you ask.
 
 ## Repository layout
@@ -163,10 +165,13 @@ android-update-deps/
 │       ├── references/
 │       │   └── reference.md        # coupled versions, hidden requirements, JitPack, report format
 │       └── scripts/
-│           ├── aggregate-updates.py        # read/dedupe the ben-manes report (--json available)
+│           ├── plan.py                     # draft the tiered proposal (--json available)
+│           ├── aggregate-updates.py        # raw view of the ben-manes report
 │           └── versions.init.gradle.kts    # inject ben-manes without editing the build
 ├── .claude-plugin/                 # Claude Code plugin + marketplace manifests
 ├── evals/                          # evaluation prompts + assertions
+│   └── fixtures/android-catalog-fixture/   # an outdated AGP 9 app to test against
+├── tests/                          # offline unit tests (python3 -m unittest discover -s tests)
 ├── CHANGELOG.md
 ├── LICENSE
 └── README.md

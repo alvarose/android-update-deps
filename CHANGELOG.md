@@ -4,6 +4,53 @@ All notable changes to this skill are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-10-03
+
+Deterministic planning engine: the mechanical part of the review moves from prose into a script.
+
+### Added
+- **`scripts/plan.py`** drafts the tiered proposal (Markdown, or `--json`). It reads the catalog
+  line by line (comments included, no `tomllib` needed) and groups entries by `version.ref`. It
+  labels toolchain items (AGP, Kotlin, KSP and its scheme, the Gradle wrapper) and BOM-governed
+  children. Candidates come from the ben-manes report or, with `--source metadata`, straight from
+  Maven metadata with no Gradle run. JitPack libraries are checked automatically. It verifies the
+  target exists for every member of a block, reads AAR `minCompileSdk` /
+  `minAndroidGradlePluginVersion` and the POM's `kotlin-stdlib`, and finds the highest compatible
+  version or a cautious step. It also flags major jumps, skipped minors, releases younger than a
+  3-day cooldown, hold comments, unused entries and unpublished current versions, and detects a
+  report older than the catalog. `compileSdk` is read from the catalog, the build scripts or
+  convention-plugin constants.
+- A versioned **eval fixture** (`evals/fixtures/android-catalog-fixture/`, AGP 9.2.1 + built-in
+  Kotlin), so evals no longer depend on a temporary directory.
+- **Offline unit tests** for the planner (`tests/`, `python3 -m unittest discover -s tests`).
+- Offer to record declined/deferred items as `# held: <reason>` in the catalog.
+- From two validation runs of the planner on the fixture (full flow, and no Gradle):
+  - **Unused entries without a report**: the build files are scanned for catalog references
+    (type-safe accessors, bundles, `findLibrary`/`findPlugin`, plugin IDs). A plugin only declared
+    with `apply false` is a decision, not a bump. Dynamic lookups switch the scan off.
+  - An unused entry is still checked against its repository (an unpublished current version shows).
+  - A **compatible alternative** that is low-risk gets its own "safe" row next to the latest under
+    "handle with care".
+  - A `compileSdk` raise needed by several items is **one "needs a decision" item** naming them;
+    AGP and Kotlin requirements are attached to those items.
+  - **Effective Kotlin without Gradle**: on AGP 9 it is inferred from the Kotlin Gradle plugin in
+    AGP's POM (or the catalog's, when an applied plugin raises it), with a warning to confirm it.
+  - AGP items say whether the target changes the bundled Kotlin Gradle plugin, point to the Gradle
+    and Android Studio minimums, and offer the latest patch of the current minor as the cautious step.
+  - The Gradle wrapper honours the cooldown (release date from `services.gradle.org`).
+  - `minCompileMinorSdk` is read, and a thin wrapper (e.g. `core-ktx`) is checked through the
+    artifact it pulls in at the same version (`core`).
+  - A current version newer than the latest stable names that stable version; the Kotlin item keeps
+    its target when it is a decision.
+  - Both scripts write UTF-8 (the Windows console code page broke on `→`).
+
+### Changed
+- `SKILL.md` restructured around the planner: Discovery → Detect → **Plan** → rules → **GATE** →
+  Apply → Verify → Commit → Adapt. Manual procedures stay in `references/reference.md` as the
+  fallback without Python. The latest Gradle comes from `services.gradle.org` (a report can be stale).
+- Discovery says which `buildEnvironment` line holds the effective Kotlin (the resolved Kotlin Gradle
+  plugin, not Gradle's embedded `kotlin-stdlib`).
+
 ## [1.3.0] — 2026-10-03
 
 Correctness update for the 2026 toolchain, plus a new repository layout.

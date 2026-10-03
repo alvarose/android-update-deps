@@ -1,57 +1,51 @@
 {
   "skill_name": "android-update-deps",
-  "notes": "Each run operates on a fresh clone of the fixture at scratchpad/fixtures/android-catalog-fixture — a real Android app (AGP + Kotlin, Compose BOM, git-initialized on `main`) with an intentionally outdated version catalog. Report highlights: gson 2.10->2.14 [safe] and androidx core-ktx 1.13->1.19 [safe minor]; a Compose BOM 2024.06.00 whose CHILDREN (compose-ui, material3) show updates but are BOM-governed and must be IGNORED (bump only the BOM); AGP 8.7.3 -> 9.2.1 [MAJOR, coupled with the Gradle wrapper -> defer]; kotlin 2.0.21 + ksp [coupled block]; a swarm of AGP-governed com.android.tools.utp:* tooling artifacts that are noise and must be ignored; and a catalog-only JitPack lib com.github.barteksc:AndroidPdfViewer [the plugin's blind spot]. Verify with `./gradlew :app:assembleDebug`. The <FIXTURE> token is replaced with the per-run copy path. Prompts pre-authorize the safe subset so the gated flow can proceed to apply/verify/commit without a human at the gate.",
+  "notes": "Each run works on a fresh copy of evals/fixtures/android-catalog-fixture (an Android app on AGP 9.2.1 + Gradle 9.6.1 with built-in Kotlin; see its README for what each catalog entry exercises). Before a run: copy the fixture to a temp dir, add local.properties with sdk.dir, adjust org.gradle.java.home in gradle.properties if needed, and `git init` + commit on `main` so that 'nothing changed' can be checked. Replace <FIXTURE> with the copy's path. The prompts ask for the proposal only (stop at the gate). Version numbers drift as libraries publish new releases, so assertions are phrased by behaviour rather than exact versions.",
   "evals": [
     {
       "id": 1,
-      "prompt": "I've got an Android project at <FIXTURE> that uses a version catalog (gradle/libs.versions.toml). Check what dependencies are outdated, show me a proposal grouped by risk, then go ahead and apply just the SAFE (low-risk, same-major) updates and commit them locally — you have my confirmation for the safe subset. Leave anything risky like a major bump for me to decide.",
-      "expected_output": "Runs dependencyUpdates, presents a risk-grouped proposal that (a) proposes bumping only the Compose BOM and explicitly ignores the BOM-governed compose-ui/material3 children, (b) classifies AGP 8.7.3->9.2.1 as a MAJOR coupled with the Gradle wrapper and defers it, (c) ignores the AGP-governed com.android.tools.utp:* tooling noise, and (d) flags the JitPack lib for manual review. Applies the safe subset (gson, core-ktx, compose BOM) to libs.versions.toml, verifies with ./gradlew :app:assembleDebug, commits on a non-default branch with a chore(deps) message, and responds in English.",
+      "prompt": "Review the dependencies of my Android project at <FIXTURE> and show me what's outdated, grouped by risk. Don't change anything yet — I just want the proposal.",
+      "expected_output": "Detection without editing the build (init script) or via the planner's metadata mode, then a risk-grouped proposal produced from scripts/plan.py and reviewed by the agent; stops at the gate.",
       "files": [],
       "assertions": [
-        "Detected available updates by running the gradle-versions-plugin (dependencyUpdates) or reading its report, rather than inventing versions.",
-        "Recognized that compose-ui and material3 are governed by the Compose BOM and proposed bumping only the BOM (did NOT propose the child artifacts as separate items).",
-        "Classified AGP 8.7.3 -> 9.2.1 as a MAJOR (coupled with the Gradle wrapper) and did NOT apply it.",
-        "Identified the JitPack library com.github.barteksc:AndroidPdfViewer from the catalog as a manual-review item (did not silently miss it).",
-        "Did not propose the AGP-governed com.android.tools.utp:* tooling artifacts as catalog updates (recognized them as noise).",
-        "Presented a proposal BEFORE editing any file (gate respected).",
-        "Applied only safe updates to gradle/libs.versions.toml (e.g. gson and/or core-ktx and/or the compose BOM; no AGP major).",
-        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
-        "Committed on a NON-default branch (not main) with a chore(deps) style message and did not push.",
-        "User-facing response is written in English."
+        "Detected updates with the ben-manes plugin injected by the init script (no edit to build.gradle.kts) or with plan.py --source metadata, not by inventing versions.",
+        "Ran scripts/plan.py (passing --kotlin with the effective version from buildEnvironment, or noting why not).",
+        "Flagged the latest androidx core-ktx and the latest Compose BOM as needing compileSdk 37 (project: 36) — coupled, not safe — and offered the highest compatible versions as alternatives, making clear which of the two rows 'the safe ones' would apply.",
+        "Listed AGP and the Gradle wrapper as separate items that need their own explicit confirmation.",
+        "Flagged the old-scheme KSP (2.2.10-2.0.2) as a prerequisite to migrate before any Kotlin bump.",
+        "Noted that under AGP 9 built-in Kotlin the catalog's kotlin ref doesn't control the compiler (or kept Kotlin as an own-confirmation item blocked by KSP).",
+        "Put the JitPack entry android-pdfview under 'needs a decision' (unused / version not published), not as a bump.",
+        "Did not present AGP-internal tooling (com.android.tools.utp, lint-gradle) or Kotlin toolchain artifacts as catalog updates.",
+        "Stopped at the gate: no tracked file changed (git status clean apart from ignored/removed build outputs).",
+        "User-facing response is in English."
       ]
     },
     {
       "id": 2,
-      "prompt": "Update the dependencies in <FIXTURE>. Heads up: it's an Android app with a Gradle version catalog, and I know at least one library comes from JitPack (com.github.*) — make sure you don't miss it. Show me the full picture grouped by risk first; you can apply the safe ones and commit.",
-      "expected_output": "Explicitly locates com.github.barteksc:AndroidPdfViewer in the catalog (the plugin's blind spot), attempts to find its latest stable via JitPack metadata, and classifies it. Also handles the Compose BOM correctly (bump BOM, ignore children) and defers the AGP major. Applies the safe subset and commits on a branch. Responds in English.",
+      "prompt": "Check the deps of <FIXTURE> without running Gradle — the build is slow on my machine. Is anything worth updating? There's a JitPack library in there too, don't skip it.",
+      "expected_output": "Uses the planner in metadata mode (no Gradle detection run), checks the JitPack entry through JitPack metadata, and presents a tiered proposal; stops at the gate.",
       "files": [],
       "assertions": [
-        "Explicitly located the JitPack entry com.github.barteksc:AndroidPdfViewer by reading the catalog, noting the gradle-versions-plugin does not track it.",
-        "Attempted to determine its latest stable version via JitPack metadata (maven-metadata.xml) or GitHub releases.",
-        "Recognized the Compose BOM governs compose-ui/material3 and proposed bumping only the BOM.",
-        "Classified AGP 8.7.3 -> 9.2.1 as a major and left it for the user (deferred).",
-        "Presented a risk-grouped proposal BEFORE editing (gate respected).",
-        "Applied only safe updates to gradle/libs.versions.toml.",
-        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
-        "Committed on a NON-default branch with a chore(deps) style message.",
-        "User-facing response is written in English."
+        "Did not run the Gradle detection task; used scripts/plan.py --source metadata (or equivalent metadata lookups).",
+        "Checked com.github.barteksc:AndroidPdfViewer against JitPack metadata and reported that the catalog version isn't a published stable release (needs a decision).",
+        "Kept AGP, Kotlin and the Gradle wrapper out of the safe group.",
+        "Reported the unused entries (android-pdfview; KSP only declared with apply false) as decisions, qualified as coming from a static scan of the build files rather than a report.",
+        "Stopped at the gate: no tracked file changed.",
+        "User-facing response is in English."
       ]
     },
     {
       "id": 3,
-      "prompt": "Revisa las dependencias de mi proyecto Android en <FIXTURE> (usa catálogo de versiones en gradle/libs.versions.toml). Dime qué hay desactualizado agrupado por riesgo y actualiza solo las seguras, con su commit. Las majors (como saltar AGP a la 9) las decido yo.",
-      "expected_output": "Same controlled flow as eval 1 but the entire user-facing response is in Spanish (language mirroring). Detects updates, handles the Compose BOM (bump BOM, ignore children), defers the AGP major, flags the JitPack lib, applies the safe subset, verifies with :app:assembleDebug, and commits on a branch.",
+      "prompt": "Revisa las dependencias de mi proyecto Android en <FIXTURE> y dime qué está desactualizado, agrupado por riesgo. De momento no cambies nada.",
+      "expected_output": "Same controlled flow as eval 1, with the whole user-facing response in Spanish.",
       "files": [],
       "assertions": [
-        "Detected available updates via the gradle-versions-plugin (dependencyUpdates) or its report.",
-        "Recognized that compose-ui/material3 are governed by the Compose BOM and proposed bumping only the BOM.",
-        "Classified the AGP 8.7.3 -> 9.2.1 jump as MAJOR and did NOT apply it.",
-        "Identified the JitPack library com.github.barteksc:AndroidPdfViewer from the catalog as a manual-review item.",
-        "Presented a proposal BEFORE editing (gate respected).",
-        "Applied only safe updates to gradle/libs.versions.toml (coupled blocks kept consistent).",
-        "Ran ./gradlew :app:assembleDebug (or a build) to verify after editing, and it succeeded.",
-        "Committed on a NON-default branch with a chore(deps) style message.",
-        "User-facing response is written in SPANISH, matching the language of the prompt."
+        "Detected updates without editing the build (init script) or with the planner's metadata mode.",
+        "Flagged the latest core-ktx / Compose BOM as needing compileSdk 37 and offered compatible alternatives.",
+        "Listed AGP and the Gradle wrapper as separate items needing their own confirmation.",
+        "Flagged the old-scheme KSP as a prerequisite before any Kotlin bump.",
+        "Stopped at the gate: no tracked file changed.",
+        "User-facing response is in SPANISH, matching the prompt."
       ]
     }
   ]
